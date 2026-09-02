@@ -46,6 +46,7 @@ Column {
         anchors.rightMargin: Style.spacing.md
         anchors.verticalCenter: parent.verticalCenter
         text: (modelData.glyph || "󰈈") + "  " + modelData.name
+        textFormat: Text.PlainText
         color: root.dim
         font.family: Style.font.family
         font.pixelSize: Style.font.bodySmall

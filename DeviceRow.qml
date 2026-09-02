@@ -120,6 +120,7 @@ Item {
       Text {
         width: parent.width
         text: root.device ? root.device.name : "Unknown"
+        textFormat: Text.PlainText
         color: root.neverUse || root.disconnected ? root.dim : root.foreground
         font.family: Style.font.family
         font.pixelSize: Style.font.body

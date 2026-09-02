@@ -313,4 +313,15 @@ const usbMic = input("alsa_input.usb", "MV7 USB Microphone")
   assert.equal(Model.relativeLastSeen("2026-08-01T12:00:00.000Z", now), "1mo ago")
 }
 
+{
+  assert.equal(Model.EVENT_RETRY_BASE_MS, 3000)
+  assert.equal(Model.nextEventRetryDelay(3000, 0), 6000, "an immediate exit doubles the delay")
+  assert.equal(Model.nextEventRetryDelay(6000, 100), 12000)
+  assert.equal(Model.nextEventRetryDelay(48000, 0), 60000, "the delay is capped")
+  assert.equal(Model.nextEventRetryDelay(60000, 0), 60000)
+  assert.equal(Model.nextEventRetryDelay(48000, 30000), 3000, "a long-lived stream resets the delay")
+  assert.equal(Model.nextEventRetryDelay(0, 0), 6000, "a missing delay starts from the base")
+  assert.equal(Model.nextEventRetryDelay(NaN, NaN), 6000)
+}
+
 console.log("ok — AudioPriorityBar state-machine parity")

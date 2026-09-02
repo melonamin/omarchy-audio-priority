@@ -28,6 +28,7 @@ Column {
       anchors.verticalCenter: parent.verticalCenter
     }
     PanelSectionHeader {
+      id: sectionTitle
       text: root.title
       foreground: root.foreground
       fontFamily: Style.font.family
@@ -39,7 +40,7 @@ Column {
       font.family: Style.font.family
       font.pixelSize: Style.font.caption
       font.bold: true
-      anchors.verticalCenter: parent.verticalCenter
+      anchors.baseline: sectionTitle.baseline
     }
   }
 

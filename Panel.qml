@@ -404,10 +404,11 @@ Panel {
           }
 
           Text {
-            visible: !root.service || !root.service.ready || root.service.stateError !== "" || root.service.routeError !== ""
+            visible: !root.service || !root.service.ready || root.service.setupError !== "" || root.service.stateError !== "" || root.service.routeError !== ""
             width: parent.width
             text: !root.service ? "Audio Priority service unavailable."
-              : (root.service.stateError || root.service.routeError || "Discovering PipeWire devices…")
+              : (root.service.setupError || root.service.stateError || root.service.routeError || "Discovering PipeWire devices…")
+            textFormat: Text.PlainText
             color: root.service && root.service.ready ? root.urgent : root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.bodySmall

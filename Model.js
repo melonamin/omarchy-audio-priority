@@ -516,6 +516,21 @@ function forgetDevice(stateValue, uid) {
   return state
 }
 
+var EVENT_RETRY_BASE_MS = 3000
+var EVENT_RETRY_MAX_MS = 60000
+// A stream that stayed up this long before exiting is treated as healthy and
+// relaunched at the base delay rather than the backed-off one.
+var EVENT_HEALTHY_RUN_MS = 30000
+
+// Delay to wait before the next relaunch of the event stream, given the delay
+// used for this one and how long the stream ran. Immediate exits double the
+// delay up to the cap.
+function nextEventRetryDelay(previousMs, ranMs) {
+  var previous = Math.max(EVENT_RETRY_BASE_MS, Number(previousMs) || 0)
+  if (Number(ranMs) >= EVENT_HEALTHY_RUN_MS) return EVENT_RETRY_BASE_MS
+  return Math.min(EVENT_RETRY_MAX_MS, previous * 2)
+}
+
 function relativeLastSeen(iso, nowMs) {
   var seen = Date.parse(String(iso || ""))
   var now = nowMs === undefined ? Date.now() : Number(nowMs)
@@ -560,6 +575,9 @@ if (typeof module !== "undefined") {
     setHiddenEntirely: setHiddenEntirely,
     setNeverUse: setNeverUse,
     forgetDevice: forgetDevice,
+    EVENT_RETRY_BASE_MS: EVENT_RETRY_BASE_MS,
+    EVENT_RETRY_MAX_MS: EVENT_RETRY_MAX_MS,
+    nextEventRetryDelay: nextEventRetryDelay,
     relativeLastSeen: relativeLastSeen
   }
 }

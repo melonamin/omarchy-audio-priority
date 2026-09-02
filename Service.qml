@@ -38,10 +38,20 @@ Item {
   property string stateError: ""
   property string routeError: ""
   property string lastSwitchReason: ""
-  property var pendingOutput: null
-  property var pendingInput: null
   property var queuedOutput: null
   property var queuedInput: null
+  // The text most recently handed to the state file. The file is watched, and
+  // the atomic rename of our own save arrives as a change like any other; the
+  // reload it triggers is skipped so it can never clobber a newer in-memory
+  // state with the older one that was still being written.
+  property string lastWrittenText: ""
+  // Delay before the PulseAudio event stream is relaunched after it exits.
+  property int eventRetryDelay: Model.EVENT_RETRY_BASE_MS
+  property real eventStartedAt: 0
+  // Without the plugin's source directory no helper script can run, so the
+  // service would otherwise sit at "discovering devices" forever.
+  readonly property string setupError: manifest && !sourceDir
+    ? "Plugin manifest has no source directory; helper scripts cannot run" : ""
   readonly property var deviceLists: {
     var ignored = revision
     return Model.buildDeviceLists(state, connectedDevices, editMode)
@@ -202,7 +212,6 @@ Item {
     if (outputRoute.running) { queuedOutput = { device: device, reason: reason }; return }
     var nativeNode = nativeNodeFor(device)
     if (nativeNode) Pipewire.preferredDefaultAudioSink = nativeNode
-    pendingOutput = device
     lastSwitchReason = String(reason || "manual")
     routeError = ""
     outputRoute.command = [pluginScript("route-device"), "output", String(device.nodeId), device.nodeName]
@@ -215,7 +224,6 @@ Item {
     if (inputRoute.running) { queuedInput = { device: device, reason: reason }; return }
     var nativeNode = nativeNodeFor(device)
     if (nativeNode) Pipewire.preferredDefaultAudioSource = nativeNode
-    pendingInput = device
     lastSwitchReason = String(reason || "manual")
     routeError = ""
     inputRoute.command = [pluginScript("route-device"), "input", String(device.nodeId), device.nodeName]
@@ -355,9 +363,15 @@ Item {
   }
 
   function consumeStateText(text) {
-    var loaded = Model.loadState(String(text || ""))
-    if (loaded.empty && !stateReady) {
-      // An empty file holds nothing worth protecting, so start from defaults.
+    var content = String(text || "")
+    if (stateReady && content === lastWrittenText) return
+    var loaded = Model.loadState(content)
+    if (loaded.empty) {
+      // At startup an empty file holds nothing worth protecting, so start from
+      // defaults. Later on, an editor that truncates before it writes shows the
+      // same empty file for a moment; the in-memory state is kept and the next
+      // save restores the file.
+      if (stateReady) return
       stateMissing = true
       if (directoryReady) initializeState()
       return
@@ -377,11 +391,22 @@ Item {
     refreshAvailability()
   }
 
+  // The write is deferred to the next event-loop pass. Quickshell's FileView
+  // drops a write that is started from inside its own load handler (the
+  // handler runs before the finished load lets go of the operation slot), and
+  // the deferral also collapses several changes made in one pass into one
+  // write.
   function persistState() {
     if (!stateReady) return
-    if (!directoryReady) { pendingSave = true; return }
     pendingSave = true
-    stateFile.setText(JSON.stringify(state, null, 2) + "\n")
+    if (!directoryReady) return
+    Qt.callLater(writeState)
+  }
+
+  function writeState() {
+    if (!stateReady || !directoryReady) return
+    lastWrittenText = JSON.stringify(state, null, 2) + "\n"
+    stateFile.setText(lastWrittenText)
   }
 
   onPipewireNodesChanged: scheduleTopologyRefresh()
@@ -406,6 +431,10 @@ Item {
     onTriggered: root.refreshAvailability()
   }
 
+  // The stream is relaunched when it exits. A stream that keeps dying at once
+  // (pactl missing, no PulseAudio socket) backs off up to a minute between
+  // attempts instead of respawning every few seconds forever; one that ran for
+  // a while before exiting starts over at the shortest delay.
   Process {
     id: audioEvents
     running: root.sourceDir !== ""
@@ -415,12 +444,17 @@ Item {
         if (/ on (sink|source|card|server) #/.test(String(line))) root.scheduleTopologyRefresh()
       }
     }
-    onExited: audioEventsRestart.restart()
+    onStarted: root.eventStartedAt = Date.now()
+    onExited: {
+      audioEventsRestart.interval = root.eventRetryDelay
+      root.eventRetryDelay = Model.nextEventRetryDelay(root.eventRetryDelay, Date.now() - root.eventStartedAt)
+      audioEventsRestart.restart()
+    }
   }
 
   Timer {
     id: audioEventsRestart
-    interval: 3000
+    interval: Model.EVENT_RETRY_BASE_MS
     repeat: false
     onTriggered: audioEvents.running = true
   }
@@ -445,7 +479,6 @@ Item {
     stderr: StdioCollector { id: outputRouteError; waitForEnd: true }
     onExited: function(exitCode) {
       if (exitCode !== 0) root.routeError = String(outputRouteError.text || "Could not change audio output").trim()
-      root.pendingOutput = null
       root.revision++
       var queued = root.queuedOutput
       root.queuedOutput = null
@@ -459,7 +492,6 @@ Item {
     stderr: StdioCollector { id: inputRouteError; waitForEnd: true }
     onExited: function(exitCode) {
       if (exitCode !== 0) root.routeError = String(inputRouteError.text || "Could not change audio input").trim()
-      root.pendingInput = null
       root.revision++
       var queued = root.queuedInput
       root.queuedInput = null
@@ -479,9 +511,13 @@ Item {
     }
   }
 
+  // The file watch is set up when the path is assigned and silently does
+  // nothing if the directory does not exist yet, so the path waits for the
+  // directory: on a fresh install the config directory is created by the
+  // process above, and a watch created before that would never fire.
   FileView {
     id: stateFile
-    path: root.statePath
+    path: root.directoryReady ? root.statePath : ""
     watchChanges: true
     atomicWrites: true
     printErrors: false
@@ -514,7 +550,8 @@ Item {
         devices: root.connectedDevices.length,
         busy: root.busy,
         events: audioEvents.running,
-        error: root.stateError || root.routeError || null
+        eventRetryMs: audioEvents.running ? 0 : audioEventsRestart.interval,
+        error: root.setupError || root.stateError || root.routeError || null
       })
     }
 

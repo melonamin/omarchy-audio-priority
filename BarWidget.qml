@@ -31,7 +31,7 @@ BarWidget {
   function closeForPopoutSwitch() { if (panelLoader.item) panelLoader.item.closeForPopoutSwitch() }
 
   readonly property string serviceError: priorityService
-    ? String(priorityService.stateError || priorityService.routeError || "") : ""
+    ? String(priorityService.setupError || priorityService.stateError || priorityService.routeError || "") : ""
 
   function outputGlyph() {
     if (!priorityService) return ""

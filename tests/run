@@ -6,3 +6,4 @@ plugin_dir=$(cd "$(dirname "$0")/.." && pwd)
 node "$plugin_dir/tests/model.test.js"
 node "$plugin_dir/tests/keyboard.test.js"
 "$plugin_dir/tests/integration.sh"
+"$plugin_dir/tests/e2e.sh"

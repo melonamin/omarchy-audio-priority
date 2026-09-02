@@ -76,8 +76,10 @@ does. Enabling automatic mode immediately applies the highest-priority available
 input and output.
 
 The file is watched. An edit made outside the panel is applied to the connected
-devices as soon as it is saved. An empty file is treated as a fresh install; a
-file that is not valid JSON is left untouched, and the bar widget shows a
+devices as soon as it is saved. An empty file at startup is treated as a fresh
+install; one that becomes empty while the service runs is ignored, because some
+editors truncate before they write, and the next save restores it. A file that
+is not valid JSON is left untouched, and the bar widget shows a
 warning glyph with the parse error in its tooltip until it is repaired.
 
 A sound card whose node exposes several ports, such as a laptop's speakers and
@@ -100,9 +102,14 @@ tests/run
 
 The suite checks the pure state-machine port, verified routing behavior, the
 sink status helper against captured `pactl` output, manifest validity, and QML
-syntax. The QML files are linted against the Omarchy shell sources found in
+syntax. It then runs the service end to end under Quickshell against a private
+PipeWire daemon (no session manager, so no real device is ever routed) with the
+Omarchy helpers replaced by fixtures, covering state-file creation, external
+edits, truncation, invalid JSON, the self-save reload guard, event-stream
+backoff, and the missing-source-directory error. The QML files are linted against the Omarchy shell sources found in
 `~/.local/share/omarchy/shell` or `/usr/share/omarchy/shell`; set
-`OMARCHY_SHELL_DIR` to point elsewhere. For local development, symlink the
+`OMARCHY_SHELL_DIR` to point elsewhere. The end-to-end step needs `qs`, `jq`, and a
+`pipewire` binary it can start privately. For local development, symlink the
 repository at `~/.config/omarchy/plugins/melonamin.audio-priority` (the plugin
 validator forbids symlinks inside a plugin folder, not the folder itself) and
 rescan plugins.
