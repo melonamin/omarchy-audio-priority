@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+case ${1:-} in
+  get-default-sink) cat "$AUDIO_PRIORITY_TEST_DIR/sink" ;;
+  get-default-source) cat "$AUDIO_PRIORITY_TEST_DIR/source" ;;
+  list)
+    [[ ${2:-} == sinks ]] || { echo "unexpected pactl invocation: $*" >&2; exit 64; }
+    cat "$AUDIO_PRIORITY_TEST_DIR/list-sinks"
+    ;;
+  *) echo "unexpected pactl invocation: $*" >&2; exit 64 ;;
+esac

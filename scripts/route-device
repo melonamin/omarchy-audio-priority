@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+direction=${1:-}
+node_id=${2:-}
+node_name=${3:-}
+
+if [[ $direction != output && $direction != input ]] || [[ -z $node_id || -z $node_name ]]; then
+  echo "usage: route-device <output|input> <node-id> <node-name>" >&2
+  exit 64
+fi
+
+if [[ $direction == output ]]; then
+  omarchy-audio-output-set-default "$node_id" "$node_name"
+  actual=$(timeout 2 pactl get-default-sink)
+else
+  omarchy-audio-input-set-default "$node_id" "$node_name"
+  actual=$(timeout 2 pactl get-default-source)
+fi
+
+if [[ $actual != "$node_name" ]]; then
+  echo "PipeWire kept ${actual:-no default} instead of $node_name" >&2
+  exit 1
+fi
+
+printf '%s\n' "$actual"
+

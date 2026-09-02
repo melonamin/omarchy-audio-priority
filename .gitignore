@@ -1,0 +1,5 @@
+*.swp
+.audio-priority-test.*
+*.tmp
+.DS_Store
+

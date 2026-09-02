@@ -1,0 +1,48 @@
+Sink #41
+	State: RUNNING
+	Name: alsa_output.pci-0000_00_1f.3.analog-stereo
+	Description: Built-in Audio Analog Stereo
+	Properties:
+		alsa.card_name = "sof-hda-dsp"
+		device.description = "Built-in Audio"
+		device.bus = "pci"
+		node.name = "alsa_output.pci-0000_00_1f.3.analog-stereo"
+		port.group = "playback"
+	Ports:
+		analog-output-speaker: Speaker (type: Speaker, priority: 10000, availability group: Legacy 2, not available)
+		analog-output-headphones: Headphones (type: Headphones, priority: 9900, availability group: Legacy 1, available)
+	Active Port: analog-output-headphones
+	Formats:
+		pcm
+Sink #60
+	State: SUSPENDED
+	Name: alsa_output.usb-Apple_Inc._Studio_Display-02.analog-stereo
+	Description: Studio Display Analog Stereo
+	Properties:
+		device.bus = "usb"
+		device.product.name = "Studio Display"
+	Ports:
+		analog-output: Analog Output (type: Analog, priority: 9900, availability unknown)
+	Active Port: analog-output
+	Formats:
+		pcm
+Sink #76
+	State: SUSPENDED
+	Name: alsa_output.usb-Audient_EVO4-00.HiFi__Headphones__sink
+	Description: EVO4 Headphone / Line Out
+	Properties:
+		device.bus = "usb"
+	Ports:
+	Active Port: [Out] Headphones
+	Formats:
+		pcm
+Sink #90
+	State: SUSPENDED
+	Name: speaker-tuning
+	Description: Speaker Tuning
+	Properties:
+		device.description = "Speaker Tuning"
+	Ports:
+	Active Port:
+	Formats:
+		pcm

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\t%s\t%s\n' input "$1" "$2" >>"$AUDIO_PRIORITY_TEST_DIR/calls"
+[[ ${AUDIO_PRIORITY_TEST_KEEP_DEFAULT:-0} == 1 ]] || printf '%s\n' "$2" >"$AUDIO_PRIORITY_TEST_DIR/source"
+
