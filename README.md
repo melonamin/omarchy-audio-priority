@@ -5,6 +5,8 @@ headphones, and microphone from the Omarchy bar. It is a native Quickshell port
 of [AudioPriorityBar](https://github.com/tobi/AudioPriorityBar), with the same
 routing state machine and an interface built from Omarchy's theme-aware UI kit.
 
+![Audio Priority managing output and microphone routing](preview.png)
+
 ## Features
 
 - Independent priority lists for speakers, headphones, and microphones
