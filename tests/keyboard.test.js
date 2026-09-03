@@ -15,11 +15,11 @@ const microphone = { uid: "input:microphone", type: "input", category: "input", 
   })
   assert.deepEqual(targets.map(target => target.id), [
     "header", "mode:speaker", "mode:headphone", "mode:custom", "output-volume",
-    "device:output:speaker", "input-volume", "device:input:microphone", "edit"
+    "device:output:speaker", "input-volume", "device:input:microphone"
   ])
   assert.equal(Keyboard.move(targets, "output-volume", 1), "device:output:speaker")
   assert.equal(Keyboard.move(targets, "header", -1), "header")
-  assert.equal(Keyboard.move(targets, "edit", 1), "edit")
+  assert.equal(Keyboard.move(targets, "device:input:microphone", 1), "device:input:microphone")
 }
 
 {
@@ -31,10 +31,15 @@ const microphone = { uid: "input:microphone", type: "input", category: "input", 
     inputs: [microphone],
     showIgnored: true,
     ignoredExpanded: true,
-    ignored: [headphones]
+    ignored: [headphones],
+    showRemembered: true,
+    rememberedExpanded: true,
+    remembered: [{ ...microphone, uid: "input:old", isConnected: false }]
   })
   assert.ok(targets.some(target => target.id === "ignored-toggle"))
   assert.ok(targets.some(target => target.id === "ignored:output:headphones"))
+  assert.ok(targets.some(target => target.id === "remembered-toggle"))
+  assert.ok(targets.some(target => target.id === "remembered:input:old"))
   assert.equal(Keyboard.repair(targets, "device:missing", 5), targets[5].id)
 }
 

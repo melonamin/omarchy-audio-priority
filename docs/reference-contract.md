@@ -30,9 +30,10 @@ The persisted fields correspond directly to `PriorityManager.swift`:
    routing. Leaving Custom immediately reapplies both priority lists.
 6. Reordering, category changes, ignoring, and Never Use follow the reference
    application's immediate-selection behavior.
-7. Disconnected devices stay editable in Edit mode and retain their priority
-   there. Outside Edit mode a reorder or click-to-promote saves the displayed
-   list only, as the reference application's `savePriorities` does.
+7. Disconnected devices retain their priority and remain manageable in the
+   collapsed Remembered Devices section. Reordering or click-to-promote saves
+   the connected list only, as the reference application's `savePriorities`
+   does.
 
 ## Platform translations
 

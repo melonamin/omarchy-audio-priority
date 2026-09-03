@@ -57,11 +57,11 @@ Open the widget and choose a mode:
 
 Click a device in an automatic mode to promote it to first priority and select
 it. In Custom mode, clicking changes the default without changing priorities.
-Use the drag handle or arrow buttons to reorder. Open a row's action menu to
-classify, ignore, prohibit, or restore it.
+Use the drag handle or keyboard shortcuts to reorder. Open a row's action menu
+to classify, ignore, prohibit, or restore it.
 
-Edit mode includes every remembered device. Disconnected devices keep their
-place, show when they were last seen, and can be forgotten.
+The collapsed Remembered Devices section lists disconnected devices. They keep
+their priority and last-seen time, and can be forgotten from their action menu.
 
 Keyboard shortcuts inside the panel:
 
@@ -71,7 +71,6 @@ Keyboard shortcuts inside the panel:
 - `1`–`9` moves the selected device directly to that priority; `0` means tenth
 - `Shift+j`/`Shift+k` moves the selected device one position
 - `a` opens the selected device's actions; `Esc` backs out or closes
-- `e` toggles Edit mode
 
 ## State and behavior
 

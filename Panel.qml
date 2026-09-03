@@ -17,6 +17,8 @@ Panel {
   property string cursorId: "header"
   property int cursorOrdinal: 0
   property bool ignoredExpanded: false
+  property bool rememberedExpanded: false
+  property bool shortcutsExpanded: false
   property string actionDeviceUid: ""
   property string actionCategory: ""
   property int actionIndex: -1
@@ -33,6 +35,7 @@ Panel {
       .concat(service.hiddenHeadphoneDevices || [])
       .concat(service.hiddenInputDevices || [])
   }
+  readonly property var rememberedDevices: service ? service.rememberedDevices || [] : []
   readonly property var cursorTargets: {
     var revision = serviceRevision
     return Keyboard.buildTargets({
@@ -42,9 +45,12 @@ Panel {
       speakers: service ? service.speakerDevices : [],
       headphones: service ? service.headphoneDevices : [],
       inputs: service ? service.inputDevices : [],
-      showIgnored: !!service && !service.editMode,
+      showIgnored: !!service,
       ignoredExpanded: ignoredExpanded,
-      ignored: ignoredDevices
+      ignored: ignoredDevices,
+      showRemembered: !!service,
+      rememberedExpanded: rememberedExpanded,
+      remembered: rememberedDevices
     })
   }
   readonly property var activeActionTarget: {
@@ -52,7 +58,8 @@ Panel {
     if (!actionDeviceUid) return null
     for (var i = 0; i < cursorTargets.length; i++) {
       var target = cursorTargets[i]
-      if (target.kind === "device" && target.device.uid === actionDeviceUid) return target
+      if ((target.kind === "device" || target.kind === "remembered")
+          && target.device.uid === actionDeviceUid) return target
     }
     return null
   }
@@ -66,9 +73,9 @@ Panel {
   }
 
   function heroGlyph() {
-    if (!service) return ""
-    if (service.customMode) return ""
-    return service.currentMode === "headphone" ? "󰋋" : ""
+    if (!service) return "󰓃"
+    if (service.customMode) return ""
+    return service.currentMode === "headphone" ? "󰋋" : "󰓃"
   }
 
   function activateMode(mode) {
@@ -122,7 +129,8 @@ Panel {
     else if (target.kind === "device" && target.device.isConnected !== false) service.selectDevice(target.device)
     else if (target.kind === "ignored-toggle") ignoredExpanded = !ignoredExpanded
     else if (target.kind === "ignored") restoreIgnored(target.device)
-    else if (target.kind === "edit") service.setEditMode(!service.editMode)
+    else if (target.kind === "remembered-toggle") rememberedExpanded = !rememberedExpanded
+    else if (target.kind === "remembered") openActionsFor(target.device, target.category)
   }
 
   function deviceListFor(target) {
@@ -162,7 +170,7 @@ Panel {
 
   function openActionsFor(device, category) {
     if (!device) return
-    selectTarget("device:" + device.uid)
+    selectTarget((device.isConnected === false ? "remembered:" : "device:") + device.uid)
     actionDeviceUid = device.uid
     actionCategory = category
     actionIndex = 0
@@ -213,25 +221,25 @@ Panel {
     else service.setHiddenEntirely(device, false)
   }
 
-  function shortcutHint() {
-    if (actionDeviceUid) return "J/K NAVIGATE · ENTER APPLY · ESC BACK"
-    var target = currentTarget()
-    if (target && target.kind === "device")
-      return "1–9/0 PRIORITY · SHIFT J/K MOVE · A ACTIONS · ENTER SELECT"
-    if (target && (target.kind === "output-volume" || target.kind === "input-volume"))
-      return "H/L ADJUST · ENTER MUTE"
-    if (target && target.kind === "header") return "ENTER DISABLE AUDIO"
-    return "J/K NAVIGATE · S/P/C MODE · E EDIT"
+  function shortcutGuide() {
+    return "J/K or ↑/↓  Navigate\n"
+      + "Enter/Space  Select or toggle\n"
+      + "H/L  Adjust volume\n"
+      + "S/P/C  Choose mode\n"
+      + "1–9/0  Set priority\n"
+      + "Shift+J/K  Move device\n"
+      + "A  Device actions\n"
+      + "Esc  Back or close"
   }
 
   function resetScroll() {
-    var flick = scroll.contentItem
+    var flick = scroll
     if (flick && flick.contentY !== undefined) flick.contentY = 0
   }
 
   function ensureCursorVisible(item) {
     if (!item || !scroll) return
-    var flick = scroll.contentItem
+    var flick = scroll
     if (!flick || flick.contentY === undefined) return
     var margin = Style.space(6)
     var maximum = Math.max(0, (flick.contentHeight || 0) - flick.height)
@@ -253,6 +261,8 @@ Panel {
       cursorId = "header"
       cursorOrdinal = 0
       ignoredExpanded = false
+      rememberedExpanded = false
+      shortcutsExpanded = false
       closeActions()
       Qt.callLater(function() {
         resetScroll()
@@ -275,7 +285,9 @@ Panel {
     open: root.opened
     focusTarget: keyCatcher
     contentWidth: popup.fittedContentWidth(Style.space(430))
-    contentHeight: popup.fittedContentHeight(content.implicitHeight, Style.space(680))
+    contentHeight: popup.fittedContentHeight(
+      fixedHeader.implicitHeight + Style.spacing.panelGap + content.implicitHeight,
+      Style.space(680))
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -308,159 +320,222 @@ Panel {
           if (text === "a" || text === "A") root.closeActions()
           return
         }
-        if (text === "s" || text === "S") { root.selectTarget("mode:speaker"); root.activateMode("speaker") }
+        if (text === "?") root.shortcutsExpanded = !root.shortcutsExpanded
+        else if (text === "s" || text === "S") { root.selectTarget("mode:speaker"); root.activateMode("speaker") }
         else if (text === "p" || text === "P") { root.selectTarget("mode:headphone"); root.activateMode("headphone") }
         else if (text === "c" || text === "C") { root.selectTarget("mode:custom"); root.activateMode("custom") }
-        else if (text === "e" || text === "E") root.service.setEditMode(!root.service.editMode)
         else if (text === "a" || text === "A") {
           var target = root.currentTarget()
-          if (target && target.kind === "device") root.openActionsFor(target.device, target.category)
+          if (target && (target.kind === "device" || target.kind === "remembered"))
+            root.openActionsFor(target.device, target.category)
         }
         else if (text === "J") root.nudgeSelected(1)
         else if (text === "K") root.nudgeSelected(-1)
         else if (/^[0-9]$/.test(text)) root.moveSelectedToPriority(text)
       }
 
-      ScrollView {
-        id: scroll
-        anchors.fill: parent
-        clip: true
-        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
-        ScrollBar.vertical.policy: content.implicitHeight > height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
-        Binding {
-          target: scroll.contentItem
-          property: "interactive"
-          value: content.implicitHeight > scroll.height
-        }
+      Column {
+        id: fixedHeader
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        spacing: Style.spacing.panelGap
 
-        Column {
-          id: content
-          width: scroll.availableWidth
-          spacing: Style.spacing.panelGap
-
-          Item {
-            id: hero
-            width: parent.width
-            implicitHeight: Math.max(heroIcon.implicitHeight, heroLabels.implicitHeight, masterToggle.implicitHeight)
-
-            Text {
-              id: heroIcon
-              text: root.heroGlyph()
-              color: root.foreground
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.display
-              opacity: root.service && root.service.anyAudible ? 1 : 0.5
-              anchors.left: parent.left
-              anchors.verticalCenter: parent.verticalCenter
-            }
-
-            ToggleSwitch {
-              id: masterToggle
-              checked: !!root.service && root.service.anyAudible
-              hasCursor: root.cursorActive && root.cursorId === "header"
-              foreground: root.foreground
-              anchors.right: parent.right
-              anchors.verticalCenter: parent.verticalCenter
-              onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(hero)
-              onHovered: function(on) { if (on) root.selectTarget("header") }
-              onToggled: if (root.service) root.service.toggleAllMuted()
-
-              PanelToolTip {
-                visible: masterToggle.containsMouse
-                text: root.service && root.service.anyAudible ? "Disable audio" : "Enable audio"
-                fontFamily: root.fontFamily
-              }
-            }
-
-            Column {
-              id: heroLabels
-              anchors.left: heroIcon.right
-              anchors.leftMargin: Style.space(14)
-              anchors.right: masterToggle.left
-              anchors.rightMargin: Style.space(12)
-              anchors.verticalCenter: parent.verticalCenter
-              spacing: Style.space(2)
-
-              Text {
-                width: parent.width
-                text: "Audio Priority"
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.title
-                font.bold: true
-                elide: Text.ElideRight
-              }
-              Text {
-                width: parent.width
-                text: root.modeName()
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                font.bold: true
-                font.letterSpacing: 1.2
-                elide: Text.ElideRight
-              }
-            }
-          }
+        Item {
+          id: hero
+          width: parent.width
+          implicitHeight: Math.max(heroIcon.implicitHeight, heroLabels.implicitHeight, masterToggle.implicitHeight)
 
           Text {
-            visible: !root.service || !root.service.ready || root.service.setupError !== ""
-              || root.service.stateError !== "" || root.service.availabilityError !== ""
-              || root.service.routeError !== ""
-            width: parent.width
-            text: !root.service ? "Audio Priority service unavailable."
-              : (root.service.setupError || root.service.stateError || root.service.availabilityError
-                || root.service.routeError || "Discovering PipeWire devices…")
-            textFormat: Text.PlainText
-            color: root.service && root.service.ready ? root.urgent : root.dim
+            id: heroIcon
+            text: root.heroGlyph()
+            color: root.foreground
             font.family: root.fontFamily
-            font.pixelSize: Style.font.bodySmall
-            wrapMode: Text.WordWrap
+            font.pixelSize: Style.font.display
+            opacity: root.service && root.service.anyAudible ? 1 : 0.5
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
           }
 
+          ToggleSwitch {
+            id: masterToggle
+            checked: !!root.service && root.service.anyAudible
+            hasCursor: root.cursorActive && root.cursorId === "header"
+            foreground: root.foreground
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            onHovered: function(on) { if (on) root.selectTarget("header") }
+            onToggled: if (root.service) root.service.toggleAllMuted()
+
+            PanelToolTip {
+              visible: masterToggle.containsMouse
+              text: root.service && root.service.anyAudible ? "Disable audio" : "Enable audio"
+              fontFamily: root.fontFamily
+            }
+          }
+
+          PanelActionButton {
+            id: shortcutsHelp
+            anchors.right: masterToggle.left
+            anchors.rightMargin: Style.spacing.md
+            anchors.verticalCenter: parent.verticalCenter
+            iconText: "󰌌"
+            tooltipText: root.shortcutGuide()
+            foreground: root.dim
+            bordered: true
+            onClicked: root.shortcutsExpanded = !root.shortcutsExpanded
+          }
+
+          Column {
+            id: heroLabels
+            anchors.left: heroIcon.right
+            anchors.leftMargin: Style.space(14)
+            anchors.right: shortcutsHelp.left
+            anchors.rightMargin: Style.space(12)
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Style.space(2)
+
+            Text {
+              width: parent.width
+              text: "Audio Priority"
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.title
+              font.bold: true
+              elide: Text.ElideRight
+            }
+            Text {
+              width: parent.width
+              text: root.modeName()
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.bold: true
+              font.letterSpacing: 1.2
+              elide: Text.ElideRight
+            }
+          }
+        }
+
+        Text {
+          visible: !root.service || !root.service.ready || root.service.setupError !== ""
+            || root.service.stateError !== "" || root.service.availabilityError !== ""
+            || root.service.routeError !== ""
+          width: parent.width
+          text: !root.service ? "Audio Priority service unavailable."
+            : (root.service.setupError || root.service.stateError || root.service.availabilityError
+              || root.service.routeError || "Discovering PipeWire devices…")
+          textFormat: Text.PlainText
+          color: root.service && root.service.ready ? root.urgent : root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+          wrapMode: Text.WordWrap
+        }
+
+        Rectangle {
+          id: modeSwitcher
+          width: parent.width
+          implicitHeight: Math.max(speakersButton.implicitHeight, headphonesButton.implicitHeight,
+            customButton.implicitHeight) + border.width * 2
+          color: "transparent"
+          border.color: Style.normalBorderFor(root.foreground, Color.accent)
+          border.width: Math.max(1, Style.normalBorderWidth)
+          radius: Style.cornerRadius
+          clip: true
+
           Row {
-            width: parent.width
-            spacing: Style.spacing.md
+            id: modeRow
+            anchors.fill: parent
+            anchors.margins: modeSwitcher.border.width
+            spacing: 0
+            readonly property real dividerWidth: Math.max(1, Style.normalBorderWidth)
+            readonly property real segmentWidth: (width - dividerWidth * 2) / 3
+
             Button {
               id: speakersButton
-              width: (parent.width - parent.spacing * 2) * 0.36
+              width: modeRow.segmentWidth
+              height: parent.height
+              radius: 0
               text: "Speakers"
-              iconText: ""
+              iconText: "󰓃"
               selected: !!root.service && !root.service.customMode && root.service.currentMode === "speaker"
               hasCursor: root.cursorActive && root.cursorId === "mode:speaker"
-              bordered: true
               foreground: root.foreground
-              onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(speakersButton)
               onHovered: function(on) { if (on) root.selectTarget("mode:speaker") }
               onClicked: root.activateMode("speaker")
             }
+            Rectangle {
+              width: modeRow.dividerWidth
+              height: parent.height
+              color: modeSwitcher.border.color
+            }
             Button {
               id: headphonesButton
-              width: (parent.width - parent.spacing * 2) * 0.39
+              width: modeRow.segmentWidth
+              height: parent.height
+              radius: 0
               text: "Headphones"
               iconText: "󰋋"
               selected: !!root.service && !root.service.customMode && root.service.currentMode === "headphone"
               hasCursor: root.cursorActive && root.cursorId === "mode:headphone"
-              bordered: true
               foreground: root.foreground
               onHovered: function(on) { if (on) root.selectTarget("mode:headphone") }
               onClicked: root.activateMode("headphone")
             }
+            Rectangle {
+              width: modeRow.dividerWidth
+              height: parent.height
+              color: modeSwitcher.border.color
+            }
             Button {
               id: customButton
-              width: (parent.width - parent.spacing * 2) * 0.25
+              width: modeRow.segmentWidth
+              height: parent.height
+              radius: 0
               text: "Custom"
-              iconText: ""
+              iconText: ""
               selected: !!root.service && root.service.customMode
               hasCursor: root.cursorActive && root.cursorId === "mode:custom"
-              bordered: true
               foreground: root.foreground
               onHovered: function(on) { if (on) root.selectTarget("mode:custom") }
               onClicked: root.activateMode("custom")
             }
           }
+        }
 
-          PanelSeparator { foreground: root.foreground }
+        Text {
+          visible: root.shortcutsExpanded
+          width: parent.width
+          text: root.shortcutGuide()
+          textFormat: Text.PlainText
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          lineHeight: 1.25
+          horizontalAlignment: Text.AlignHCenter
+        }
+
+        PanelSeparator { foreground: root.foreground }
+      }
+
+      Flickable {
+        id: scroll
+        anchors.top: fixedHeader.bottom
+        anchors.topMargin: Style.spacing.panelGap
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        clip: true
+        contentWidth: width
+        contentHeight: content.implicitHeight
+        boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
+        interactive: contentHeight > height
+
+        Column {
+          id: content
+          width: scroll.width
+          spacing: Style.spacing.lg
 
           Column {
             width: parent.width
@@ -514,7 +589,7 @@ Panel {
             panelController: root
             title: "SPEAKERS"
             category: "speaker"
-            glyph: ""
+            glyph: "󰓃"
             devices: root.service ? root.service.speakerDevices : []
             currentUid: root.service ? root.service.currentOutputUid : ""
             foreground: root.foreground
@@ -615,7 +690,7 @@ Panel {
           }
 
           IgnoredDevices {
-            visible: !!root.service && !root.service.editMode && root.ignoredDevices.length > 0
+            visible: !!root.service && root.ignoredDevices.length > 0
             width: parent.width
             service: root.service
             panelController: root
@@ -625,49 +700,17 @@ Panel {
             dim: root.dim
           }
 
-          Text {
+          RememberedDevices {
+            visible: !!root.service && root.rememberedDevices.length > 0
             width: parent.width
-            text: root.shortcutHint()
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            font.bold: true
-            font.letterSpacing: 0.45
-            horizontalAlignment: Text.AlignHCenter
-            wrapMode: Text.WordWrap
+            service: root.service
+            panelController: root
+            devices: root.rememberedDevices
+            expanded: root.rememberedExpanded
+            foreground: root.foreground
+            dim: root.dim
           }
 
-          PanelSeparator { foreground: root.foreground }
-
-          Row {
-            width: parent.width
-            spacing: Style.spacing.md
-            Text {
-              width: Math.max(0, parent.width - editButton.width - parent.spacing)
-              anchors.verticalCenter: parent.verticalCenter
-              text: root.service
-                ? (root.service.connectedDevices.length + " CONNECTED · " + root.service.state.knownDevices.length + " REMEMBERED")
-                : "SERVICE UNAVAILABLE"
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              font.bold: true
-              font.letterSpacing: 0.7
-              elide: Text.ElideRight
-            }
-            Button {
-              id: editButton
-              text: root.service && root.service.editMode ? "Done" : "Edit"
-              iconText: root.service && root.service.editMode ? "󰄬" : "󰏫"
-              selected: !!root.service && root.service.editMode
-              hasCursor: root.cursorActive && root.cursorId === "edit"
-              bordered: true
-              foreground: root.foreground
-              onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(editButton)
-              onHovered: function(on) { if (on) root.selectTarget("edit") }
-              onClicked: if (root.service) root.service.setEditMode(!root.service.editMode)
-            }
-          }
         }
       }
     }

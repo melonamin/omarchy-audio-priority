@@ -369,8 +369,8 @@ function rememberDevices(state, connectedDevices, now) {
   return next
 }
 
-function disconnectedDevice(stored) {
-  return {
+function disconnectedDevice(state, stored) {
+  var device = {
     uid: stored.uid,
     name: stored.name,
     type: stored.isInput ? "input" : "output",
@@ -379,25 +379,26 @@ function disconnectedDevice(stored) {
     nodeName: "",
     lastSeen: stored.lastSeen
   }
+  device.category = device.type === "input" ? "input" : categoryFor(state, device)
+  device.glyph = deviceGlyph(device, device.category)
+  return device
 }
 
-function buildDeviceLists(stateValue, connectedDevices, editMode) {
+function buildDeviceLists(stateValue, connectedDevices) {
   var state = normalizeState(stateValue)
   var live = Array.isArray(connectedDevices) ? connectedDevices.filter(function(device) {
     return !!device && !!device.uid && device.isConnected !== false
   }) : []
   var connected = lookup()
   for (var i = 0; i < live.length; i++) connected[live[i].uid] = true
-  var all = live.slice()
-  if (editMode) {
-    for (i = 0; i < state.knownDevices.length; i++) {
-      var stored = state.knownDevices[i]
-      if (!connected[stored.uid]) all.push(disconnectedDevice(stored))
-    }
+  var remembered = []
+  for (i = 0; i < state.knownDevices.length; i++) {
+    var stored = state.knownDevices[i]
+    if (!connected[stored.uid]) remembered.push(disconnectedDevice(state, stored))
   }
 
-  var inputs = all.filter(function(device) { return device.type === "input" })
-  var outputs = all.filter(function(device) { return device.type === "output" })
+  var inputs = live.filter(function(device) { return device.type === "input" })
+  var outputs = live.filter(function(device) { return device.type === "output" })
   var speakers = outputs.filter(function(device) { return categoryFor(state, device) === "speaker" })
   var headphones = outputs.filter(function(device) { return categoryFor(state, device) === "headphone" })
 
@@ -405,13 +406,8 @@ function buildDeviceLists(stateValue, connectedDevices, editMode) {
   function hidden(device, type, category) { return includes(state[hiddenKey(type, category)], device.uid) }
   var result = {
     inputDevices: [], speakerDevices: [], headphoneDevices: [],
-    hiddenInputDevices: [], hiddenSpeakerDevices: [], hiddenHeadphoneDevices: []
-  }
-  if (editMode) {
-    result.inputDevices = stablePrioritySort(inputs, state.inputPriorities)
-    result.speakerDevices = stablePrioritySort(speakers, state.speakerPriorities)
-    result.headphoneDevices = stablePrioritySort(headphones, state.headphonePriorities)
-    return result
+    hiddenInputDevices: [], hiddenSpeakerDevices: [], hiddenHeadphoneDevices: [],
+    rememberedDevices: remembered
   }
 
   result.inputDevices = stablePrioritySort(inputs.filter(function(device) {
@@ -444,7 +440,7 @@ function firstConnected(devices) {
 function automaticSelection(stateValue, connectedDevices) {
   var state = normalizeState(stateValue)
   if (state.customMode) return { input: null, output: null }
-  var lists = buildDeviceLists(state, connectedDevices, false)
+  var lists = buildDeviceLists(state, connectedDevices)
   return {
     input: firstConnected(lists.inputDevices),
     output: firstConnected(state.currentMode === "headphone" ? lists.headphoneDevices : lists.speakerDevices)
@@ -457,7 +453,7 @@ function topologyTransition(stateValue, previousConnectedUids, connectedDevices)
   var previous = lookup()
   var old = Array.isArray(previousConnectedUids) ? previousConnectedUids : []
   for (var i = 0; i < old.length; i++) previous[String(old[i])] = true
-  var lists = buildDeviceLists(state, connectedDevices, false)
+  var lists = buildDeviceLists(state, connectedDevices)
   var newHeadphone = false
   for (i = 0; i < lists.headphoneDevices.length; i++) {
     var candidate = lists.headphoneDevices[i]

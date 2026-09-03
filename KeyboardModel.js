@@ -40,7 +40,13 @@ function buildTargets(view) {
       result = result.concat(deviceTargets("ignored", ignored))
   }
 
-  result.push({ id: "edit", kind: "edit" })
+  var remembered = Array.isArray(source.remembered) ? source.remembered : []
+  if (source.showRemembered === true && remembered.length > 0) {
+    result.push({ id: "remembered-toggle", kind: "remembered-toggle" })
+    if (source.rememberedExpanded === true)
+      result = result.concat(deviceTargets("remembered", remembered))
+  }
+
   return result
 }
 

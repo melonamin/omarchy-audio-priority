@@ -47,18 +47,16 @@ BarWidget {
   }
 
   function modeGlyph() {
-    if (!priorityService) return ""
-    if (priorityService.customMode) return ""
-    return priorityService.currentMode === "headphone" ? "󰋋" : ""
+    if (!priorityService) return "󰓃"
+    if (priorityService.customMode) return ""
+    return priorityService.currentMode === "headphone" ? "󰋋" : "󰓃"
   }
 
   function buttonText() {
-    var parts = []
-    if (priorityService && priorityService.inputMuted && micFlash) parts.push("󰍭")
-    var mode = modeGlyph()
-    if (mode) parts.push(mode)
-    parts.push(outputGlyph())
-    return parts.join(" ")
+    if (serviceError) return ""
+    if (priorityService && priorityService.inputMuted && micFlash) return "󰍭"
+    if (priorityService && priorityService.outputMuted) return ""
+    return modeGlyph()
   }
 
   function tooltip() {

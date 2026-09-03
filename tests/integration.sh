@@ -107,6 +107,7 @@ qmllint -I "$shell_dir" \
   "$plugin_dir/DeviceSection.qml" \
   "$plugin_dir/DeviceRow.qml" \
   "$plugin_dir/IgnoredDevices.qml" \
+  "$plugin_dir/RememberedDevices.qml" \
   "$plugin_dir/tests/e2e/shell.qml"
 
 printf 'ok — routing and sink-status helpers, manifest, and QML validation\n'

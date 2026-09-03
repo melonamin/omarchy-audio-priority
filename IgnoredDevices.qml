@@ -15,10 +15,12 @@ Column {
   Button {
     id: disclosure
     width: parent.width
-    text: root.devices.length + " ignored"
+    text: "Ignored"
     iconText: root.expanded ? "󰅀" : "󰅂"
     leftAlign: true
-    bordered: true
+    bordered: false
+    horizontalPadding: Style.spacing.xs
+    verticalPadding: Style.spacing.xs
     hasCursor: !!root.panelController && root.panelController.cursorActive
       && root.panelController.cursorId === "ignored-toggle"
     foreground: root.dim

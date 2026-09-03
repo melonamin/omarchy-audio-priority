@@ -15,7 +15,7 @@ Column {
   property color foreground: Color.foreground
   property color dim: Qt.darker(foreground, 1.45)
 
-  spacing: Style.spacing.md
+  spacing: Style.spacing.sm
 
   Row {
     width: parent.width
@@ -28,26 +28,17 @@ Column {
       anchors.verticalCenter: parent.verticalCenter
     }
     PanelSectionHeader {
-      id: sectionTitle
       text: root.title
       foreground: root.foreground
       fontFamily: Style.font.family
       anchors.verticalCenter: parent.verticalCenter
-    }
-    Text {
-      text: String(root.devices.length)
-      color: root.dim
-      font.family: Style.font.family
-      font.pixelSize: Style.font.caption
-      font.bold: true
-      anchors.baseline: sectionTitle.baseline
     }
   }
 
   Text {
     visible: root.devices.length === 0
     width: parent.width
-    text: root.service && root.service.editMode ? "No remembered devices" : "No connected devices"
+    text: "No connected devices"
     color: root.dim
     font.family: Style.font.family
     font.pixelSize: Style.font.bodySmall

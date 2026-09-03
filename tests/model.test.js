@@ -125,14 +125,14 @@ const usbMic = input("alsa_input.usb", "MV7 USB Microphone")
   state.speakerPriorities = [display.uid, speakers.uid]
   state.headphonePriorities = [headset.uid, headphones.uid]
   state.inputPriorities = [usbMic.uid, internalMic.uid]
-  let lists = Model.buildDeviceLists(state, [speakers, display, headphones, headset, internalMic, usbMic], false)
+  let lists = Model.buildDeviceLists(state, [speakers, display, headphones, headset, internalMic, usbMic])
   assert.deepEqual(lists.speakerDevices.map(device => device.uid), [display.uid, speakers.uid])
   assert.deepEqual(lists.headphoneDevices.map(device => device.uid), [headset.uid, headphones.uid])
   assert.deepEqual(lists.inputDevices.map(device => device.uid), [usbMic.uid, internalMic.uid])
 
   state = Model.setHidden(state, display, "speaker", true)
   state = Model.setNeverUse(state, headset.uid, true)
-  lists = Model.buildDeviceLists(state, [speakers, display, headphones, headset, internalMic, usbMic], false)
+  lists = Model.buildDeviceLists(state, [speakers, display, headphones, headset, internalMic, usbMic])
   assert.deepEqual(lists.speakerDevices.map(device => device.uid), [speakers.uid])
   assert.deepEqual(lists.hiddenSpeakerDevices.map(device => device.uid), [display.uid])
   assert.deepEqual(lists.headphoneDevices.map(device => device.uid), [headphones.uid])
@@ -141,11 +141,13 @@ const usbMic = input("alsa_input.usb", "MV7 USB Microphone")
 
 {
   let state = Model.rememberDevices(Model.defaultState(), [speakers, headphones, internalMic], "2026-09-01T00:00:00.000Z")
-  const lists = Model.buildDeviceLists(state, [speakers], true)
+  const lists = Model.buildDeviceLists(state, [speakers])
   assert.equal(lists.speakerDevices[0].isConnected, true)
-  assert.equal(lists.headphoneDevices[0].isConnected, false)
-  assert.equal(lists.inputDevices[0].isConnected, false)
-  assert.equal(lists.headphoneDevices[0].lastSeen, "2026-09-01T00:00:00.000Z")
+  assert.deepEqual(lists.headphoneDevices, [])
+  assert.deepEqual(lists.inputDevices, [])
+  assert.deepEqual(lists.rememberedDevices.map(device => device.uid), [headphones.uid, internalMic.uid])
+  assert.equal(lists.rememberedDevices[0].category, "headphone")
+  assert.equal(lists.rememberedDevices[0].lastSeen, "2026-09-01T00:00:00.000Z")
 }
 
 {

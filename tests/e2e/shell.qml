@@ -26,6 +26,7 @@ ShellRoot {
       loadError = "createObject returned null"
       return
     }
+    instance.omarchyPath = "/usr/share/omarchy"
     var manifest = { id: "melonamin.audio-priority" }
     if (!withoutSourceDir) {
       manifest.__sourceDir = pluginDir

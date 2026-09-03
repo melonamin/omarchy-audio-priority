@@ -19,7 +19,7 @@ Item {
     ? String(manifest.__testBinDir) : ""
   readonly property string home: Quickshell.env("HOME")
   readonly property string runtimeDir: String(Quickshell.env("XDG_RUNTIME_DIR") || "")
-  readonly property string omarchyPath: String(Quickshell.env("OMARCHY_PATH") || "/usr/share/omarchy")
+  property string omarchyPath: String(Quickshell.env("OMARCHY_PATH") || "/usr/share/omarchy")
   readonly property string configDir: home + "/.config/omarchy"
   readonly property string statePath: configDir + "/audio-priority.json"
   readonly property var childEnvironment: {
@@ -54,7 +54,6 @@ Item {
   property bool stateReloadPending: false
   property bool inventoryReady: false
   property string inventorySignature: ""
-  property bool editMode: false
   property var connectedDevices: []
   property var previousConnectedUids: []
   property var sinkStatus: ({})
@@ -80,7 +79,7 @@ Item {
     ? "Plugin manifest has no source directory; helper scripts cannot run" : ""
   readonly property var deviceLists: {
     var ignored = revision
-    return Model.buildDeviceLists(state, connectedDevices, editMode)
+    return Model.buildDeviceLists(state, connectedDevices)
   }
   readonly property var inputDevices: deviceLists.inputDevices || []
   readonly property var speakerDevices: deviceLists.speakerDevices || []
@@ -88,6 +87,7 @@ Item {
   readonly property var hiddenInputDevices: deviceLists.hiddenInputDevices || []
   readonly property var hiddenSpeakerDevices: deviceLists.hiddenSpeakerDevices || []
   readonly property var hiddenHeadphoneDevices: deviceLists.hiddenHeadphoneDevices || []
+  readonly property var rememberedDevices: deviceLists.rememberedDevices || []
   readonly property string currentOutputUid: Model.currentDeviceUid("output",
     defaultSink && defaultSink.name ? String(defaultSink.name) : "", connectedDevices)
   readonly property string currentInputUid: Model.currentDeviceUid("input",
@@ -115,6 +115,14 @@ Item {
   function boundedCommand(seconds, script, args) {
     return ["/usr/bin/timeout", "-k", "1s", String(seconds) + "s", pluginScript(script)]
       .concat(args || [])
+  }
+
+  function startRuntime() {
+    if (!sourceDir) return
+    audioEvents.command = boundedCommand(21600, "audio-events", [])
+    audioEvents.running = true
+    directoryInit.command = boundedCommand(4, "prepare-state", [configDir, statePath])
+    directoryInit.running = true
   }
 
   function nodeProperties(node) {
@@ -293,7 +301,7 @@ Item {
     var list = type === "input" ? inputDevices
       : (category === "headphone" ? headphoneDevices : speakerDevices)
     replaceState(Model.reorder(state, list, type, category, uid, destination), true)
-    var refreshed = Model.buildDeviceLists(state, connectedDevices, editMode)
+    var refreshed = Model.buildDeviceLists(state, connectedDevices)
     var reordered = type === "input" ? refreshed.inputDevices
       : (category === "headphone" ? refreshed.headphoneDevices : refreshed.speakerDevices)
     var top = reordered.length > 0 ? reordered[0] : null
@@ -337,11 +345,6 @@ Item {
 
   function isNeverUse(device) {
     return state.neverUseDevices.indexOf(device.uid) !== -1
-  }
-
-  function setEditMode(enabled) {
-    editMode = enabled === true
-    revision++
   }
 
   function setOutputVolume(value) {
@@ -456,6 +459,7 @@ Item {
   onPipewireNodesChanged: scheduleTopologyRefresh()
   onDefaultSinkChanged: revision++
   onDefaultSourceChanged: revision++
+  onSourceDirChanged: if (sourceDir) Qt.callLater(startRuntime)
 
   Timer {
     id: topologyDebounce
@@ -481,8 +485,7 @@ Item {
   // a while before exiting starts over at the shortest delay.
   Process {
     id: audioEvents
-    running: root.sourceDir !== ""
-    command: root.boundedCommand(21600, "audio-events", [])
+    running: false
     clearEnvironment: true
     environment: root.childEnvironment
     stdout: SplitParser {
@@ -554,12 +557,15 @@ Item {
 
   Process {
     id: directoryInit
-    running: root.sourceDir !== ""
-    command: root.boundedCommand(4, "prepare-state", [root.configDir, root.statePath])
+    running: false
     clearEnvironment: true
     environment: root.childEnvironment
+    stderr: StdioCollector { id: directoryInitError; waitForEnd: true }
     onExited: function(exitCode) {
-      if (exitCode !== 0) { root.stateError = "Could not create " + root.configDir; return }
+      if (exitCode !== 0) {
+        root.stateError = String(directoryInitError.text || "Could not prepare " + root.configDir).trim()
+        return
+      }
       root.directoryReady = true
       if (root.stateMissing) root.initializeState()
       else if (root.pendingSave) root.persistState()
