@@ -67,7 +67,7 @@ their priority and last-seen time, and can be forgotten from their action menu.
 
 Keyboard shortcuts inside the panel:
 
-- `j`/`k` or arrows navigate; `Enter`/`Space` activates
+- `j`/`k` or arrows navigate devices; `Enter`/`Space` activates
 - `h`/`l` adjusts the selected output or input level
 - `s`, `p`, and `c` select Speakers, Headphones, and Custom mode
 - `1`–`9` moves the selected device directly to that priority; `0` means tenth

@@ -17,32 +17,22 @@ function deviceTargets(kind, devices) {
 
 function buildTargets(view) {
   var source = view || {}
-  var result = [
-    { id: "header", kind: "header" },
-    { id: "mode:speaker", kind: "mode", mode: "speaker" },
-    { id: "mode:headphone", kind: "mode", mode: "headphone" },
-    { id: "mode:custom", kind: "mode", mode: "custom" },
-    { id: "output-volume", kind: "output-volume" }
-  ]
+  var result = []
 
   if (source.showSpeakers !== false)
     result = result.concat(deviceTargets("device", source.speakers))
   if (source.showHeadphones === true)
     result = result.concat(deviceTargets("device", source.headphones))
-  if (source.showInputVolume !== false)
-    result.push({ id: "input-volume", kind: "input-volume" })
   result = result.concat(deviceTargets("device", source.inputs))
 
   var ignored = Array.isArray(source.ignored) ? source.ignored : []
   if (source.showIgnored === true && ignored.length > 0) {
-    result.push({ id: "ignored-toggle", kind: "ignored-toggle" })
     if (source.ignoredExpanded === true)
       result = result.concat(deviceTargets("ignored", ignored))
   }
 
   var remembered = Array.isArray(source.remembered) ? source.remembered : []
   if (source.showRemembered === true && remembered.length > 0) {
-    result.push({ id: "remembered-toggle", kind: "remembered-toggle" })
     if (source.rememberedExpanded === true)
       result = result.concat(deviceTargets("remembered", remembered))
   }

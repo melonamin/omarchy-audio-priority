@@ -14,7 +14,7 @@ Panel {
   property Item anchorItem: null
   property Item hostWidget: null
   property bool cursorActive: false
-  property string cursorId: "header"
+  property string cursorId: ""
   property int cursorOrdinal: 0
   property bool ignoredExpanded: false
   property bool rememberedExpanded: false
@@ -115,22 +115,16 @@ Panel {
 
   function adjustCursor(delta) {
     var target = currentTarget()
-    if (!target || !service) return
-    if (target.kind === "output-volume") service.setOutputVolume(service.outputVolume + delta * 0.05)
-    else if (target.kind === "input-volume") service.setInputVolume(service.inputVolume + delta * 0.05)
+    if (!target || !service || target.kind !== "device") return
+    if (target.device.type === "input") service.setInputVolume(service.inputVolume + delta * 0.05)
+    else service.setOutputVolume(service.outputVolume + delta * 0.05)
   }
 
   function activateCursor() {
     var target = currentTarget()
     if (!target || !service) return
-    if (target.kind === "header") service.toggleAllMuted()
-    else if (target.kind === "mode") activateMode(target.mode)
-    else if (target.kind === "output-volume") service.toggleOutputMute()
-    else if (target.kind === "input-volume") service.toggleInputMute()
-    else if (target.kind === "device" && target.device.isConnected !== false) service.selectDevice(target.device)
-    else if (target.kind === "ignored-toggle") ignoredExpanded = !ignoredExpanded
+    if (target.kind === "device" && target.device.isConnected !== false) service.selectDevice(target.device)
     else if (target.kind === "ignored") restoreIgnored(target.device)
-    else if (target.kind === "remembered-toggle") rememberedExpanded = !rememberedExpanded
     else if (target.kind === "remembered") openActionsFor(target.device, target.category)
   }
 
@@ -238,7 +232,7 @@ Panel {
   }
 
   function shortcutGuide() {
-    return "J/K or ↑/↓  Navigate\n"
+    return "J/K or ↑/↓  Navigate devices\n"
       + "Enter/Space  Select or toggle\n"
       + "H/L  Adjust volume\n"
       + "S/P/C  Choose mode\n"
@@ -274,7 +268,7 @@ Panel {
   onOpenedChanged: {
     if (opened) {
       cursorActive = false
-      cursorId = "header"
+      cursorId = cursorTargets.length > 0 ? cursorTargets[0].id : ""
       cursorOrdinal = 0
       ignoredExpanded = false
       rememberedExpanded = false
@@ -302,7 +296,8 @@ Panel {
     focusTarget: keyCatcher
     contentWidth: popup.fittedContentWidth(Style.space(430))
     contentHeight: popup.fittedContentHeight(
-      fixedHeader.implicitHeight + Style.spacing.panelGap + content.implicitHeight,
+      fixedHeader.implicitHeight + fixedFooter.implicitHeight
+        + Style.spacing.panelGap * 2 + content.implicitHeight,
       Style.space(680))
 
     PanelKeyCatcher {
@@ -338,9 +333,9 @@ Panel {
           return
         }
         if (text === "?") root.shortcutsExpanded = !root.shortcutsExpanded
-        else if (text === "s" || text === "S") { root.selectTarget("mode:speaker"); root.activateMode("speaker") }
-        else if (text === "p" || text === "P") { root.selectTarget("mode:headphone"); root.activateMode("headphone") }
-        else if (text === "c" || text === "C") { root.selectTarget("mode:custom"); root.activateMode("custom") }
+        else if (text === "s" || text === "S") root.activateMode("speaker")
+        else if (text === "p" || text === "P") root.activateMode("headphone")
+        else if (text === "c" || text === "C") root.activateMode("custom")
         else if (text === "a" || text === "A") {
           var target = root.currentTarget()
           if (target && (target.kind === "device" || target.kind === "remembered"))
@@ -391,23 +386,11 @@ Panel {
             }
           }
 
-          PanelActionButton {
-            id: shortcutsHelp
-            anchors.right: masterToggle.left
-            anchors.rightMargin: Style.spacing.md
-            anchors.verticalCenter: parent.verticalCenter
-            iconText: "󰌌"
-            tooltipText: root.shortcutGuide()
-            foreground: root.dim
-            bordered: true
-            onClicked: root.shortcutsExpanded = !root.shortcutsExpanded
-          }
-
           Column {
             id: heroLabels
             anchors.left: heroIcon.right
             anchors.leftMargin: Style.space(14)
-            anchors.right: shortcutsHelp.left
+            anchors.right: masterToggle.left
             anchors.rightMargin: Style.space(12)
             anchors.verticalCenter: parent.verticalCenter
             spacing: Style.space(2)
@@ -467,12 +450,16 @@ Panel {
             spacing: 0
             readonly property real dividerWidth: Math.max(1, Style.normalBorderWidth)
             readonly property real segmentWidth: (width - dividerWidth * 2) / 3
+            readonly property real segmentRadius: Math.max(0,
+              Style.cornerRadius - modeSwitcher.border.width)
 
             Button {
               id: speakersButton
               width: modeRow.segmentWidth
               height: parent.height
               radius: 0
+              topLeftRadius: modeRow.segmentRadius
+              bottomLeftRadius: modeRow.segmentRadius
               text: "Speakers"
               iconText: "󰓃"
               selected: !!root.service && !root.service.customMode && root.service.currentMode === "speaker"
@@ -509,6 +496,8 @@ Panel {
               width: modeRow.segmentWidth
               height: parent.height
               radius: 0
+              topRightRadius: modeRow.segmentRadius
+              bottomRightRadius: modeRow.segmentRadius
               text: "Custom"
               iconText: ""
               selected: !!root.service && root.service.customMode
@@ -520,18 +509,6 @@ Panel {
           }
         }
 
-        Text {
-          visible: root.shortcutsExpanded
-          width: parent.width
-          text: root.shortcutGuide()
-          textFormat: Text.PlainText
-          color: root.dim
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          lineHeight: 1.25
-          horizontalAlignment: Text.AlignHCenter
-        }
-
         PanelSeparator { foreground: root.foreground }
       }
 
@@ -541,7 +518,8 @@ Panel {
         anchors.topMargin: Style.spacing.panelGap
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.bottom: parent.bottom
+        anchors.bottom: fixedFooter.top
+        anchors.bottomMargin: Style.spacing.panelGap
         clip: true
         contentWidth: width
         contentHeight: content.implicitHeight
@@ -728,6 +706,50 @@ Panel {
             dim: root.dim
           }
 
+        }
+      }
+
+      Column {
+        id: fixedFooter
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        spacing: Style.spacing.sm
+
+        CursorSurface {
+          visible: root.shortcutsExpanded
+          width: parent.width
+          implicitHeight: shortcutsText.implicitHeight + Style.spacing.controlPaddingY * 2
+          bordered: true
+          foreground: root.foreground
+
+          Text {
+            id: shortcutsText
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.leftMargin: Style.spacing.controlPaddingX
+            anchors.rightMargin: Style.spacing.controlPaddingX
+            text: root.shortcutGuide()
+            textFormat: Text.PlainText
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            lineHeight: 1.25
+          }
+        }
+
+        Item {
+          width: parent.width
+          implicitHeight: shortcutsHelp.implicitHeight
+
+          PanelActionButton {
+            id: shortcutsHelp
+            anchors.right: parent.right
+            iconText: ""
+            foreground: root.shortcutsExpanded ? root.foreground : root.dim
+            onClicked: root.shortcutsExpanded = !root.shortcutsExpanded
+          }
         }
       }
     }
