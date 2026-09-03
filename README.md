@@ -47,6 +47,15 @@ release tag or a commit published through a trusted channel. Re-review changes
 before running `omarchy plugin update`. The widget is added to the right side of
 the bar when enabled; no separate daemon or systemd unit is installed.
 
+## Remove
+
+```bash
+omarchy plugin remove melonamin.audio-priority
+```
+
+Removal leaves `~/.config/omarchy/audio-priority.json` in place so a later
+reinstall can restore the existing preferences.
+
 ## Use
 
 Open the widget and choose a mode:
