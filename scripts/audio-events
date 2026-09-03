@@ -1,0 +1,21 @@
+#!/usr/bin/bash
+set -euo pipefail
+
+export LC_ALL=C
+
+if [[ -n ${AUDIO_PRIORITY_TEST_BIN:-} ]]; then
+  [[ $AUDIO_PRIORITY_TEST_BIN == /* && -x $AUDIO_PRIORITY_TEST_BIN/pactl ]] || exit 69
+  pactl_bin=$AUDIO_PRIORITY_TEST_BIN/pactl
+else
+  pactl_bin=/usr/bin/pactl
+  [[ -x $pactl_bin ]] || exit 69
+fi
+
+# Emit only a fixed token and coalesce bursts to at most one notification per
+# second. Device-controlled fields never enter the shell process.
+"$pactl_bin" subscribe | /usr/bin/awk '
+  / on (sink|source|card|server) #/ {
+    now = systime()
+    if (now != last) { print "changed"; fflush(); last = now }
+  }
+'

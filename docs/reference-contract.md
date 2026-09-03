@@ -43,9 +43,11 @@ The persisted fields correspond directly to `PriorityManager.swift`:
   headphone jack as separate devices while PipeWire switches the port of a
   single node.
 - CoreAudio device-list notifications become PulseAudio change events from
-  `pactl subscribe`, debounced, with a slow timer as fallback.
+  `pactl subscribe`, reduced to fixed-size notifications, debounced, and
+  restarted periodically, with a slow timer as fallback.
+- Sink availability is authoritative: a sink omitted by the helper is treated
+  as unavailable until a later successful refresh reports it.
 - The macOS menu-bar popover becomes an Omarchy bar widget and `KeyboardPanel`.
 - Launch at Login is represented by enabling the plugin service. Quit is
   represented by disabling the plugin. Neither changes routing semantics.
 - SF Symbols become Nerd Font glyphs supplied by Omarchy.
-

@@ -31,11 +31,21 @@ Audio Priority is configured.
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/melonamin/omarchy-audio-priority.git --enable
+omarchy plugin add https://github.com/melonamin/omarchy-audio-priority.git
 ```
 
-The widget is added to the right side of the bar. Its service starts whenever
-the plugin is enabled; no separate daemon or systemd unit is installed.
+Omarchy plugins run as unsandboxed code in the long-lived shell. Before enabling
+this plugin, review the checkout and record the exact revision you inspected:
+
+```bash
+git -C ~/.config/omarchy/plugins/melonamin.audio-priority rev-parse HEAD
+omarchy plugin enable melonamin.audio-priority
+```
+
+For a reproducible installation, compare that full revision with a signed
+release tag or a commit published through a trusted channel. Re-review changes
+before running `omarchy plugin update`. The widget is added to the right side of
+the bar when enabled; no separate daemon or systemd unit is installed.
 
 ## Use
 
@@ -83,6 +93,11 @@ install; one that becomes empty while the service runs is ignored, because some
 editors truncate before they write, and the next save restores it. A file that
 is not valid JSON is left untouched, and the bar widget shows a
 warning glyph with the parse error in its tooltip until it is repaired.
+The plugin limits the state document to 262,144 characters, each persisted list
+to 256 entries, and device-controlled fields to 512 characters. Oversized state
+is rejected while the last valid in-memory configuration remains active. The
+state directory and file are required to be owned by the current user, may not
+be symlinks, and are kept at modes `0700` and `0600` respectively.
 
 A sound card whose node exposes several ports, such as a laptop's speakers and
 headphone jack, is remembered as one device per port (`Analog Stereo · Speaker`
@@ -92,9 +107,22 @@ timer only backs that stream up.
 
 ## Requirements
 
-- Omarchy Quattro with plugin support
+- Omarchy Quattro 4.0.2 or newer with plugin support
+- Quickshell 0.3.1 or newer
 - PipeWire and WirePlumber
-- `pactl`, `wpctl`, and Omarchy's standard audio helpers
+- Bash, GNU coreutils, `awk`, `pactl`, `wpctl`, and Omarchy's standard audio
+  helpers (`omarchy-audio-input-set-default`,
+  `omarchy-audio-output-set-default`, and
+  `omarchy-audio-sink-availability`)
+
+Runtime audio control is restricted to the local PipeWire Pulse socket beneath
+`XDG_RUNTIME_DIR`; the plugin makes no internet requests and requires no
+credentials or elevated privileges. Finite helpers have hard deadlines, helper
+output is bounded, and an unavailable or malformed sink status fails closed.
+
+Release tags should be signed and should identify the exact Omarchy and
+Quickshell versions used for validation. The repository intentionally has no
+downloaded executable artifacts or package-manager dependencies.
 
 ## Development
 

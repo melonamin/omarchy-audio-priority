@@ -1,9 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 case ${1:-} in
-  get-default-sink) cat "$AUDIO_PRIORITY_TEST_DIR/sink" ;;
-  get-default-source) cat "$AUDIO_PRIORITY_TEST_DIR/source" ;;
-  subscribe) exit 0 ;;
+  get-default-sink|get-default-source)
+    if [[ ${AUDIO_PRIORITY_TEST_OVERSIZED_DEFAULT:-0} == 1 ]]; then
+      printf '%0600d\n' 0
+    elif [[ $1 == get-default-sink ]]; then
+      cat "$AUDIO_PRIORITY_TEST_DIR/sink"
+    else
+      cat "$AUDIO_PRIORITY_TEST_DIR/source"
+    fi
+    ;;
+  subscribe)
+    [[ ${AUDIO_PRIORITY_TEST_EVENTS:-0} != 1 ]] || printf "Event 'change' on sink #1\nEvent 'change' on source #2\n"
+    ;;
   list)
     [[ ${2:-} == sinks ]] || { echo "unexpected pactl invocation: $*" >&2; exit 64; }
     cat "$AUDIO_PRIORITY_TEST_DIR/list-sinks"

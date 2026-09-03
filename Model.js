@@ -1,4 +1,12 @@
 var STATE_VERSION = 1
+var MAX_STATE_TEXT_LENGTH = 262144
+var MAX_STATE_ITEMS = 256
+var MAX_STRING_LENGTH = 512
+
+function boundedString(value, fallback) {
+  var text = String(value || fallback || "")
+  return text.length > MAX_STRING_LENGTH ? text.slice(0, MAX_STRING_LENGTH) : text
+}
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value))
@@ -14,8 +22,8 @@ function uniqueStrings(value) {
   var source = Array.isArray(value) ? value : []
   var result = []
   var seen = lookup()
-  for (var i = 0; i < source.length; i++) {
-    var item = String(source[i] || "")
+  for (var i = 0; i < source.length && result.length < MAX_STATE_ITEMS; i++) {
+    var item = boundedString(source[i])
     if (!item || seen[item]) continue
     seen[item] = true
     result.push(item)
@@ -26,9 +34,11 @@ function uniqueStrings(value) {
 function stringMap(value, allowedValues) {
   var source = value && typeof value === "object" && !Array.isArray(value) ? value : {}
   var result = {}
-  for (var key in source) {
-    var name = String(key || "")
-    var item = String(source[key] || "")
+  var keys = Object.keys(source)
+  for (var i = 0; i < keys.length && i < MAX_STATE_ITEMS; i++) {
+    var key = keys[i]
+    var name = boundedString(key)
+    var item = boundedString(source[key])
     if (!name || (allowedValues && allowedValues.indexOf(item) === -1)) continue
     result[name] = item
   }
@@ -56,16 +66,16 @@ function normalizeKnownDevices(value) {
   var source = Array.isArray(value) ? value : []
   var result = []
   var byUid = lookup()
-  for (var i = 0; i < source.length; i++) {
+  for (var i = 0; i < source.length && result.length < MAX_STATE_ITEMS; i++) {
     var raw = source[i]
     if (!raw || typeof raw !== "object") continue
-    var uid = String(raw.uid || "")
+    var uid = boundedString(raw.uid)
     if (!uid) continue
     var device = {
       uid: uid,
-      name: String(raw.name || "Unknown"),
+      name: boundedString(raw.name, "Unknown"),
       isInput: raw.isInput === true,
-      lastSeen: String(raw.lastSeen || "")
+      lastSeen: boundedString(raw.lastSeen)
     }
     if (byUid[uid] !== undefined) result[byUid[uid]] = device
     else {
@@ -94,12 +104,33 @@ function normalizeState(value) {
   }
 }
 
+function serializeState(value) {
+  var text = JSON.stringify(normalizeState(value)) + "\n"
+  if (text.length > MAX_STATE_TEXT_LENGTH) {
+    return {
+      text: "",
+      error: "audio-priority.json would exceed the " + MAX_STATE_TEXT_LENGTH + " character limit"
+    }
+  }
+  return { text: text, error: "" }
+}
+
 function loadState(text) {
   var source = String(text || "")
   if (source.trim() === "") return { value: null, error: "", empty: true }
+  if (source.length > MAX_STATE_TEXT_LENGTH) {
+    return {
+      value: null,
+      error: "audio-priority.json exceeds the " + MAX_STATE_TEXT_LENGTH + " character limit",
+      empty: false
+    }
+  }
   try {
     var parsed = JSON.parse(source)
-    return { value: normalizeState(parsed), error: "", empty: false }
+    var normalized = normalizeState(parsed)
+    var serialized = serializeState(normalized)
+    if (serialized.error) return { value: null, error: serialized.error, empty: false }
+    return { value: normalized, error: "", empty: false }
   } catch (error) {
     return { value: null, error: "Invalid audio-priority.json: " + String(error.message || error), empty: false }
   }
@@ -114,8 +145,8 @@ function includes(list, value) {
 // headphones appears as a distinct device the way CoreAudio reports it.
 function deviceUid(direction, nodeName, port) {
   var type = direction === "input" ? "input" : "output"
-  var uid = type + ":" + String(nodeName || "")
-  var qualifier = String(port || "")
+  var uid = type + ":" + boundedString(nodeName)
+  var qualifier = boundedString(port)
   return qualifier ? uid + "#" + qualifier : uid
 }
 
@@ -180,17 +211,22 @@ function deviceGlyph(device, category) {
 // name, available, port count, active port name, active port description.
 function parseSinkStatus(raw) {
   var result = lookup()
-  var lines = String(raw || "").split("\n")
-  for (var i = 0; i < lines.length; i++) {
+  var source = String(raw || "")
+  if (source.length > MAX_STATE_TEXT_LENGTH) return result
+  var lines = source.split("\n")
+  for (var i = 0; i < lines.length && i < MAX_STATE_ITEMS; i++) {
     var line = lines[i]
     if (!line.trim()) continue
     var parts = line.split("\t")
-    if (parts.length < 2 || !parts[0]) continue
-    result[parts[0]] = {
-      available: parts[1].trim() !== "0",
-      portCount: Math.max(0, Number(parts[2]) || 0),
-      portName: String(parts[3] || "").trim(),
-      portDescription: String(parts[4] || "").trim()
+    var available = String(parts[1] || "").trim()
+    var portCount = Number(parts[2] || 0)
+    if (parts.length < 2 || !parts[0] || !/^[01]$/.test(available)
+        || !isFinite(portCount) || portCount < 0 || portCount > MAX_STATE_ITEMS) continue
+    result[boundedString(parts[0])] = {
+      available: available === "1",
+      portCount: Math.floor(portCount),
+      portName: boundedString(parts[3]).trim(),
+      portDescription: boundedString(parts[4]).trim()
     }
   }
   return result
@@ -216,16 +252,16 @@ function topologySignature(devices) {
 function buildDevice(state, node, sinkStatus) {
   if (!node) return null
   var type = node.type === "input" ? "input" : "output"
-  var nodeName = String(node.nodeName || "")
+  var nodeName = boundedString(node.nodeName)
   if (!nodeName || (type === "input" && nodeName === "quickshell")) return null
   var props = node.props && typeof node.props === "object" ? node.props : {}
   var status = type === "output" && sinkStatus ? sinkStatus[nodeName] : null
-  if (status && status.available === false) return null
+  if (type === "output" && (!status || status.available !== true)) return null
   var portName = status ? status.portName : ""
   var portDescription = status ? status.portDescription : ""
   var multiPort = !!status && status.portCount > 1
-  var description = String(node.description || props["node.description"] || nodeName)
-  var nickname = String(node.nickname || props["node.nick"] || "")
+  var description = boundedString(node.description || props["node.description"] || nodeName)
+  var nickname = boundedString(node.nickname || props["node.nick"])
   var name = friendlyDeviceLabel(description || nickname || nodeName)
   if (multiPort && (portDescription || portName)) name += " · " + (portDescription || portName)
   var device = {
@@ -237,12 +273,12 @@ function buildDevice(state, node, sinkStatus) {
     nodeName: nodeName,
     description: description,
     nickname: nickname,
-    formFactor: String(props["device.form-factor"] || props["device.form_factor"] || ""),
-    iconName: String(props["device.icon-name"] || ""),
-    productName: String(props["device.product.name"] || ""),
-    portName: portName || String(props["api.alsa.path"] || ""),
+    formFactor: boundedString(props["device.form-factor"] || props["device.form_factor"]),
+    iconName: boundedString(props["device.icon-name"]),
+    productName: boundedString(props["device.product.name"]),
+    portName: portName || boundedString(props["api.alsa.path"]),
     portDescription: portDescription,
-    bus: String(props["device.bus"] || props["device.api"] || ""),
+    bus: boundedString(props["device.bus"] || props["device.api"]),
     muted: node.muted === true
   }
   device.category = type === "output" ? categoryFor(state, device) : "input"
@@ -316,12 +352,12 @@ function rememberDevices(state, connectedDevices, now) {
   var knownIndex = lookup()
   for (var i = 0; i < next.knownDevices.length; i++) knownIndex[next.knownDevices[i].uid] = i
   var devices = Array.isArray(connectedDevices) ? connectedDevices : []
-  for (i = 0; i < devices.length; i++) {
+  for (i = 0; i < devices.length && i < MAX_STATE_ITEMS; i++) {
     var device = devices[i]
     if (!device || !device.uid) continue
     var stored = {
-      uid: String(device.uid),
-      name: String(device.name || "Unknown"),
+      uid: boundedString(device.uid),
+      name: boundedString(device.name, "Unknown"),
       isInput: device.type === "input",
       lastSeen: timestamp
     }
@@ -476,7 +512,7 @@ function setCustomMode(stateValue, enabled) {
 
 function setCategory(stateValue, uid, category) {
   var state = normalizeState(stateValue)
-  if (uid) state.deviceCategories[String(uid)] = category === "headphone" ? "headphone" : "speaker"
+  if (uid) state.deviceCategories[boundedString(uid)] = category === "headphone" ? "headphone" : "speaker"
   return state
 }
 
@@ -505,13 +541,13 @@ function setHiddenEntirely(stateValue, device, hidden) {
 
 function setNeverUse(stateValue, uid, enabled) {
   var state = normalizeState(stateValue)
-  state.neverUseDevices = setMembership(state.neverUseDevices, String(uid || ""), enabled)
+  state.neverUseDevices = setMembership(state.neverUseDevices, boundedString(uid), enabled)
   return state
 }
 
 function forgetDevice(stateValue, uid) {
   var state = normalizeState(stateValue)
-  var key = String(uid || "")
+  var key = boundedString(uid)
   state.knownDevices = state.knownDevices.filter(function(device) { return device.uid !== key })
   return state
 }
@@ -547,8 +583,12 @@ function relativeLastSeen(iso, nowMs) {
 if (typeof module !== "undefined") {
   module.exports = {
     STATE_VERSION: STATE_VERSION,
+    MAX_STATE_TEXT_LENGTH: MAX_STATE_TEXT_LENGTH,
+    MAX_STATE_ITEMS: MAX_STATE_ITEMS,
+    MAX_STRING_LENGTH: MAX_STRING_LENGTH,
     defaultState: defaultState,
     normalizeState: normalizeState,
+    serializeState: serializeState,
     loadState: loadState,
     deviceUid: deviceUid,
     currentDeviceUid: currentDeviceUid,

@@ -1,0 +1,36 @@
+#!/usr/bin/bash
+set -euo pipefail
+
+config_dir=${1:-}
+state_path=${2:-}
+expected_dir=${HOME:-}/.config/omarchy
+
+if [[ -z ${HOME:-} || $HOME != /* || $config_dir != "$expected_dir" \
+    || $state_path != "$config_dir/audio-priority.json" ]]; then
+  echo "Refusing an unexpected state path" >&2
+  exit 64
+fi
+
+for parent in "$HOME" "$HOME/.config"; do
+  [[ ! -L $parent ]] || { echo "Refusing a symlinked state parent" >&2; exit 73; }
+  [[ ! -e $parent || -d $parent ]] || { echo "State parent is not a directory" >&2; exit 73; }
+done
+[[ ! -L $config_dir ]] || { echo "Refusing a symlinked state directory" >&2; exit 73; }
+
+umask 077
+/usr/bin/mkdir -p -- "$config_dir"
+[[ -d $config_dir && ! -L $config_dir ]] || { echo "State directory is unsafe" >&2; exit 73; }
+[[ $(/usr/bin/stat -c %u -- "$config_dir") == "$(/usr/bin/id -u)" ]] \
+  || { echo "State directory has an unexpected owner" >&2; exit 73; }
+/usr/bin/chmod 0700 -- "$config_dir"
+
+if [[ -e $state_path || -L $state_path ]]; then
+  [[ -f $state_path && ! -L $state_path ]] || { echo "State path is not a regular file" >&2; exit 73; }
+  [[ $(/usr/bin/stat -c %u -- "$state_path") == "$(/usr/bin/id -u)" ]] \
+    || { echo "State file has an unexpected owner" >&2; exit 73; }
+else
+  set -o noclobber
+  : >"$state_path"
+  set +o noclobber
+fi
+/usr/bin/chmod 0600 -- "$state_path"

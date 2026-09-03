@@ -15,9 +15,33 @@ Item {
     ? String(manifest.id) : "melonamin.audio-priority"
   readonly property string sourceDir: manifest && manifest.__sourceDir
     ? String(manifest.__sourceDir) : ""
+  readonly property string testBinDir: manifest && manifest.__testBinDir
+    ? String(manifest.__testBinDir) : ""
   readonly property string home: Quickshell.env("HOME")
+  readonly property string runtimeDir: String(Quickshell.env("XDG_RUNTIME_DIR") || "")
+  readonly property string omarchyPath: String(Quickshell.env("OMARCHY_PATH") || "/usr/share/omarchy")
   readonly property string configDir: home + "/.config/omarchy"
   readonly property string statePath: configDir + "/audio-priority.json"
+  readonly property var childEnvironment: {
+    var env = {
+      "HOME": home,
+      "LANG": "C",
+      "LC_ALL": "C",
+      "PATH": "/usr/bin:/bin",
+      "OMARCHY_PATH": omarchyPath
+    }
+    if (runtimeDir) {
+      env["XDG_RUNTIME_DIR"] = runtimeDir
+      env["PIPEWIRE_RUNTIME_DIR"] = runtimeDir
+      env["PULSE_SERVER"] = "unix:" + runtimeDir + "/pulse/native"
+    }
+    if (testBinDir) {
+      env["AUDIO_PRIORITY_TEST_BIN"] = testBinDir
+      env["AUDIO_PRIORITY_TEST_DIR"] = String(Quickshell.env("AUDIO_PRIORITY_TEST_DIR") || "")
+      env["AUDIO_PRIORITY_TEST_KEEP_DEFAULT"] = String(Quickshell.env("AUDIO_PRIORITY_TEST_KEEP_DEFAULT") || "0")
+    }
+    return env
+  }
   readonly property var pipewireNodes: Pipewire.nodes ? Pipewire.nodes.values : []
   readonly property var defaultSink: Pipewire.defaultAudioSink
   readonly property var defaultSource: Pipewire.defaultAudioSource
@@ -27,6 +51,7 @@ Item {
   property bool stateMissing: false
   property bool directoryReady: false
   property bool pendingSave: false
+  property bool stateReloadPending: false
   property bool inventoryReady: false
   property string inventorySignature: ""
   property bool editMode: false
@@ -36,6 +61,7 @@ Item {
   property bool statusRefreshPending: false
   property int revision: 0
   property string stateError: ""
+  property string availabilityError: ""
   property string routeError: ""
   property string lastSwitchReason: ""
   property var queuedOutput: null
@@ -80,10 +106,15 @@ Item {
   readonly property string currentMode: state.currentMode
   readonly property bool customMode: state.customMode === true
   readonly property bool busy: outputRoute.running || inputRoute.running
-  readonly property bool ready: stateReady && inventoryReady
+  readonly property bool ready: stateReady && inventoryReady && !availabilityError
 
   function pluginScript(name) {
     return sourceDir + "/scripts/" + name
+  }
+
+  function boundedCommand(seconds, script, args) {
+    return ["/usr/bin/timeout", "-k", "1s", String(seconds) + "s", pluginScript(script)]
+      .concat(args || [])
   }
 
   function nodeProperties(node) {
@@ -119,7 +150,7 @@ Item {
   function snapshotInventory() {
     var result = []
     var seen = Object.create(null)
-    for (var i = 0; i < pipewireNodes.length; i++) {
+    for (var i = 0; i < pipewireNodes.length && result.length < Model.MAX_STATE_ITEMS; i++) {
       var node = pipewireNodes[i]
       if (!node || node.isStream) continue
       var type = node.isSink ? "output" : (isAudioSource(node) ? "input" : "")
@@ -214,7 +245,8 @@ Item {
     if (nativeNode) Pipewire.preferredDefaultAudioSink = nativeNode
     lastSwitchReason = String(reason || "manual")
     routeError = ""
-    outputRoute.command = [pluginScript("route-device"), "output", String(device.nodeId), device.nodeName]
+    outputRoute.command = boundedCommand(12, "route-device",
+      ["output", String(device.nodeId), device.nodeName])
     outputRoute.running = true
   }
 
@@ -226,7 +258,8 @@ Item {
     if (nativeNode) Pipewire.preferredDefaultAudioSource = nativeNode
     lastSwitchReason = String(reason || "manual")
     routeError = ""
-    inputRoute.command = [pluginScript("route-device"), "input", String(device.nodeId), device.nodeName]
+    inputRoute.command = boundedCommand(12, "route-device",
+      ["input", String(device.nodeId), device.nodeName])
     inputRoute.running = true
   }
 
@@ -391,6 +424,11 @@ Item {
     refreshAvailability()
   }
 
+  function revalidateStateFile() {
+    stateReloadPending = true
+    if (!stateRevalidate.running) stateRevalidate.running = true
+  }
+
   // The write is deferred to the next event-loop pass. Quickshell's FileView
   // drops a write that is started from inside its own load handler (the
   // handler runs before the finished load lets go of the operation slot), and
@@ -405,7 +443,13 @@ Item {
 
   function writeState() {
     if (!stateReady || !directoryReady) return
-    lastWrittenText = JSON.stringify(state, null, 2) + "\n"
+    var serialized = Model.serializeState(state)
+    if (serialized.error) {
+      pendingSave = false
+      stateError = serialized.error
+      return
+    }
+    lastWrittenText = serialized.text
     stateFile.setText(lastWrittenText)
   }
 
@@ -438,11 +482,11 @@ Item {
   Process {
     id: audioEvents
     running: root.sourceDir !== ""
-    command: ["pactl", "subscribe"]
+    command: root.boundedCommand(21600, "audio-events", [])
+    clearEnvironment: true
+    environment: root.childEnvironment
     stdout: SplitParser {
-      onRead: function(line) {
-        if (/ on (sink|source|card|server) #/.test(String(line))) root.scheduleTopologyRefresh()
-      }
+      onRead: function(line) { if (String(line) === "changed") root.scheduleTopologyRefresh() }
     }
     onStarted: root.eventStartedAt = Date.now()
     onExited: {
@@ -461,11 +505,18 @@ Item {
 
   Process {
     id: availabilityProc
-    command: [root.pluginScript("sink-status")]
+    command: root.boundedCommand(6, "sink-status", [])
+    clearEnvironment: true
+    environment: root.childEnvironment
     stdout: StdioCollector { id: availabilityOutput; waitForEnd: true }
     onExited: function(exitCode) {
-      if (exitCode === 0) root.sinkStatus = Model.parseSinkStatus(availabilityOutput.text)
-      root.refreshTopology()
+      if (exitCode === 0) {
+        root.sinkStatus = Model.parseSinkStatus(availabilityOutput.text)
+        root.availabilityError = ""
+        root.refreshTopology()
+      } else {
+        root.availabilityError = "Could not verify audio output availability"
+      }
       if (root.statusRefreshPending) {
         root.statusRefreshPending = false
         root.refreshAvailability()
@@ -475,7 +526,8 @@ Item {
 
   Process {
     id: outputRoute
-    stdout: StdioCollector { waitForEnd: true }
+    clearEnvironment: true
+    environment: root.childEnvironment
     stderr: StdioCollector { id: outputRouteError; waitForEnd: true }
     onExited: function(exitCode) {
       if (exitCode !== 0) root.routeError = String(outputRouteError.text || "Could not change audio output").trim()
@@ -488,7 +540,8 @@ Item {
 
   Process {
     id: inputRoute
-    stdout: StdioCollector { waitForEnd: true }
+    clearEnvironment: true
+    environment: root.childEnvironment
     stderr: StdioCollector { id: inputRouteError; waitForEnd: true }
     onExited: function(exitCode) {
       if (exitCode !== 0) root.routeError = String(inputRouteError.text || "Could not change audio input").trim()
@@ -501,13 +554,33 @@ Item {
 
   Process {
     id: directoryInit
-    running: true
-    command: ["mkdir", "-p", root.configDir]
+    running: root.sourceDir !== ""
+    command: root.boundedCommand(4, "prepare-state", [root.configDir, root.statePath])
+    clearEnvironment: true
+    environment: root.childEnvironment
     onExited: function(exitCode) {
       if (exitCode !== 0) { root.stateError = "Could not create " + root.configDir; return }
       root.directoryReady = true
       if (root.stateMissing) root.initializeState()
       else if (root.pendingSave) root.persistState()
+    }
+  }
+
+  Process {
+    id: stateRevalidate
+    command: root.boundedCommand(4, "prepare-state", [root.configDir, root.statePath])
+    clearEnvironment: true
+    environment: root.childEnvironment
+    onExited: function(exitCode) {
+      if (exitCode !== 0) {
+        root.stateReloadPending = false
+        root.stateError = "audio-priority.json failed ownership, type, or permission checks"
+        return
+      }
+      if (root.stateReloadPending) {
+        root.stateReloadPending = false
+        stateFile.reload()
+      }
     }
   }
 
@@ -522,7 +595,7 @@ Item {
     atomicWrites: true
     printErrors: false
     onLoaded: root.consumeStateText(text())
-    onFileChanged: reload()
+    onFileChanged: root.revalidateStateFile()
     onLoadFailed: function(error) {
       if (error === FileViewError.FileNotFound && !root.stateReady) {
         root.stateMissing = true
@@ -551,7 +624,7 @@ Item {
         busy: root.busy,
         events: audioEvents.running,
         eventRetryMs: audioEvents.running ? 0 : audioEventsRestart.interval,
-        error: root.setupError || root.stateError || root.routeError || null
+        error: root.setupError || root.stateError || root.availabilityError || root.routeError || null
       })
     }
 

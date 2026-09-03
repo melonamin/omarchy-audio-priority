@@ -55,6 +55,25 @@ const usbMic = input("alsa_input.usb", "MV7 USB Microphone")
   assert.equal(empty.empty, true, "a blank file is reported as empty, not as corrupt")
   assert.equal(empty.error, "")
 
+  const oversized = Model.loadState("x".repeat(Model.MAX_STATE_TEXT_LENGTH + 1))
+  assert.equal(oversized.value, null)
+  assert.match(oversized.error, /exceeds/)
+
+  const dense = Model.defaultState()
+  const denseFieldLength = 315
+  dense.knownDevices = Array.from({ length: Model.MAX_STATE_ITEMS }, (_, index) => ({
+    uid: "u" + index + "x".repeat(denseFieldLength - String(index).length - 1),
+    name: "n".repeat(denseFieldLength),
+    isInput: index % 2 === 0,
+    lastSeen: "2".repeat(denseFieldLength)
+  }))
+  assert.ok((JSON.stringify(Model.normalizeState(dense), null, 2) + "\n").length
+    > Model.MAX_STATE_TEXT_LENGTH)
+  const serialized = Model.serializeState(dense)
+  assert.equal(serialized.error, "")
+  assert.ok(serialized.text.length <= Model.MAX_STATE_TEXT_LENGTH)
+  assert.equal(Model.loadState(serialized.text).error, "")
+
   const normalized = Model.normalizeState({
     currentMode: "nonsense",
     customMode: 1,
@@ -300,8 +319,16 @@ const usbMic = input("alsa_input.usb", "MV7 USB Microphone")
   assert.equal(Model.buildDevice(state, { ...node, nodeName: "speaker-tuning" },
     Model.parseSinkStatus("speaker-tuning\t0\t0\t\t")), null, "unavailable sinks are dropped")
   assert.equal(Model.buildDevice(state, { type: "input", nodeName: "quickshell", nodeId: 9 }, {}), null)
-  assert.equal(Model.buildDevice(state, { type: "output", nodeName: "unknown-sink", nodeId: 7 }, {}).uid, "output:unknown-sink",
-    "a sink the helper has not reported yet is still listed")
+  assert.equal(Model.buildDevice(state, { type: "output", nodeName: "unknown-sink", nodeId: 7 }, {}), null,
+    "a sink the helper has not verified is rejected")
+}
+
+{
+  const oversized = Array.from({ length: Model.MAX_STATE_ITEMS + 10 }, (_, index) => "device-" + index)
+  const state = Model.normalizeState({ inputPriorities: oversized })
+  assert.equal(state.inputPriorities.length, Model.MAX_STATE_ITEMS)
+  assert.equal(Model.deviceUid("output", "x".repeat(Model.MAX_STRING_LENGTH + 1)).length,
+    "output:".length + Model.MAX_STRING_LENGTH)
 }
 
 {

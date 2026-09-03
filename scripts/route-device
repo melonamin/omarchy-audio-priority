@@ -1,21 +1,56 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash
 set -euo pipefail
+
+export LC_ALL=C
+
+tool() {
+  local name=$1
+  if [[ -n ${AUDIO_PRIORITY_TEST_BIN:-} ]]; then
+    [[ $AUDIO_PRIORITY_TEST_BIN == /* && -x $AUDIO_PRIORITY_TEST_BIN/$name ]] || return 1
+    printf '%s\n' "$AUDIO_PRIORITY_TEST_BIN/$name"
+  else
+    [[ -x /usr/bin/$name ]] || return 1
+    printf '%s\n' "/usr/bin/$name"
+  fi
+}
+
+timeout_bin=/usr/bin/timeout
+head_bin=/usr/bin/head
+pactl_bin=$(tool pactl) || { echo "Required pactl executable is unavailable" >&2; exit 69; }
 
 direction=${1:-}
 node_id=${2:-}
 node_name=${3:-}
 
-if [[ $direction != output && $direction != input ]] || [[ -z $node_id || -z $node_name ]]; then
+if [[ $direction != output && $direction != input ]] \
+    || [[ ! $node_id =~ ^[0-9]{1,10}$ ]] \
+    || [[ -z $node_name || ${#node_name} -gt 512 || $node_name == -* ]] \
+    || [[ $node_name == *$'\n'* || $node_name == *$'\r'* || $node_name == *$'\t'* ]]; then
   echo "usage: route-device <output|input> <node-id> <node-name>" >&2
   exit 64
 fi
 
 if [[ $direction == output ]]; then
-  omarchy-audio-output-set-default "$node_id" "$node_name"
-  actual=$(timeout 2 pactl get-default-sink)
+  route_helper=$(tool omarchy-audio-output-set-default) \
+    || { echo "Required Omarchy output helper is unavailable" >&2; exit 69; }
+  "$timeout_bin" -k 1s 8s "$route_helper" "$node_id" "$node_name" >/dev/null 2>&1 \
+    || { echo "Audio output helper failed or timed out" >&2; exit 1; }
+  actual=$("$timeout_bin" -k 1s 2s "$pactl_bin" get-default-sink \
+    | "$head_bin" -c 513) \
+    || { echo "Could not verify the default audio output" >&2; exit 1; }
 else
-  omarchy-audio-input-set-default "$node_id" "$node_name"
-  actual=$(timeout 2 pactl get-default-source)
+  route_helper=$(tool omarchy-audio-input-set-default) \
+    || { echo "Required Omarchy input helper is unavailable" >&2; exit 69; }
+  "$timeout_bin" -k 1s 8s "$route_helper" "$node_id" "$node_name" >/dev/null 2>&1 \
+    || { echo "Audio input helper failed or timed out" >&2; exit 1; }
+  actual=$("$timeout_bin" -k 1s 2s "$pactl_bin" get-default-source \
+    | "$head_bin" -c 513) \
+    || { echo "Could not verify the default audio input" >&2; exit 1; }
+fi
+
+if (( ${#actual} > 512 )); then
+  echo "Default audio device name exceeded its limit" >&2
+  exit 65
 fi
 
 if [[ $actual != "$node_name" ]]; then
@@ -24,4 +59,3 @@ if [[ $actual != "$node_name" ]]; then
 fi
 
 printf '%s\n' "$actual"
-

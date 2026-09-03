@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash
 # Prints one line per PulseAudio sink for the service:
 #   <sink name> TAB <available 0|1> TAB <port count> TAB <active port> TAB <active port description>
 # Availability comes from Omarchy's own helper so speaker tunings stay hidden;
@@ -6,9 +6,40 @@
 # (speakers vs. the headphone jack) as its own device.
 set -euo pipefail
 
-availability=$(timeout 2 omarchy-audio-sink-availability 2>/dev/null || true)
+export LC_ALL=C
 
-timeout 2 pactl list sinks 2>/dev/null | awk -v availability="$availability" '
+tool() {
+  local name=$1
+  if [[ -n ${AUDIO_PRIORITY_TEST_BIN:-} ]]; then
+    [[ $AUDIO_PRIORITY_TEST_BIN == /* && -x $AUDIO_PRIORITY_TEST_BIN/$name ]] || return 1
+    printf '%s\n' "$AUDIO_PRIORITY_TEST_BIN/$name"
+  else
+    [[ -x /usr/bin/$name ]] || return 1
+    printf '%s\n' "/usr/bin/$name"
+  fi
+}
+
+timeout_bin=/usr/bin/timeout
+head_bin=/usr/bin/head
+awk_bin=/usr/bin/awk
+pactl_bin=$(tool pactl) || { echo "Required pactl executable is unavailable" >&2; exit 69; }
+availability_bin=$(tool omarchy-audio-sink-availability) \
+  || { echo "Required Omarchy sink helper is unavailable" >&2; exit 69; }
+availability_limit=32768
+output_limit=131072
+
+if ! availability=$("$timeout_bin" -k 1s 3s "$availability_bin" 2>/dev/null \
+    | "$head_bin" -c $((availability_limit + 1))); then
+  echo "Could not determine trusted sink availability" >&2
+  exit 1
+fi
+if (( ${#availability} > availability_limit )); then
+  echo "Sink availability output exceeded its limit" >&2
+  exit 65
+fi
+
+if ! result=$("$timeout_bin" -k 1s 3s "$pactl_bin" list sinks 2>/dev/null \
+  | "$awk_bin" -v availability="$availability" '
   BEGIN {
     count = split(availability, rows, "\n")
     for (i = 1; i <= count; i++) {
@@ -19,7 +50,7 @@ timeout 2 pactl list sinks 2>/dev/null | awk -v availability="$availability" '
 
   function emit_sink() {
     if (name == "") return
-    avail = (name in available_for) ? available_for[name] : 1
+    avail = (name in available_for) ? available_for[name] : 0
     printf "%s\t%s\t%d\t%s\t%s\n", name, avail, port_count, active, port_desc[active]
   }
 
@@ -66,4 +97,12 @@ timeout 2 pactl list sinks 2>/dev/null | awk -v availability="$availability" '
   END {
     emit_sink()
   }
-'
+' | "$head_bin" -c $((output_limit + 1))); then
+  echo "Could not read bounded sink status" >&2
+  exit 1
+fi
+if (( ${#result} > output_limit )); then
+  echo "Sink status output exceeded its limit" >&2
+  exit 65
+fi
+[[ -z $result ]] || printf '%s\n' "$result"

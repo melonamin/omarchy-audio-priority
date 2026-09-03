@@ -1,3 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
+[[ ${AUDIO_PRIORITY_TEST_AVAILABILITY_FAIL:-0} != 1 ]] || exit 1
 cat "$AUDIO_PRIORITY_TEST_DIR/availability"

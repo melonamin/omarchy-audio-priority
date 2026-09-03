@@ -50,6 +50,7 @@ wait_for() {
 status() { qs -p "$shell_dir" ipc call melonamin.audio-priority status 2>/dev/null; }
 status_is() { status | jq -e "$1" >/dev/null; }
 host_call() { qs -p "$shell_dir" ipc call audio-priority-e2e "$@" 2>/dev/null; }
+state_mode_is_private() { [[ $(stat -c %a "$state_file") == 600 ]]; }
 
 start_shell() {
   qs -p "$shell_dir" >"$work/qs.log" 2>&1 &
@@ -71,7 +72,6 @@ stop_shell() {
 export HOME=$work/home
 export AUDIO_PRIORITY_TEST_DIR=$work/fixtures
 export AUDIO_PRIORITY_PLUGIN_DIR=$plugin_dir
-export PATH="$plugin_dir/tests/fixtures/bin:$PATH"
 export PIPEWIRE_RUNTIME_DIR=$work/pipewire
 # Headless: no window is ever created. The GTK platform theme would demand a
 # display, so it is disabled along with the display variables themselves.
@@ -95,6 +95,8 @@ start_shell
 
 # A fresh install writes the default state and reports ready with no devices.
 wait_for "the state file" test -s "$state_file"
+[[ $(stat -c %a "$HOME/.config/omarchy") == 700 ]] || fail "state directory is not private"
+[[ $(stat -c %a "$state_file") == 600 ]] || fail "state file is not private"
 jq -e '.version == 1 and .currentMode == "speaker" and .customMode == false' "$state_file" >/dev/null \
   || fail "default state was not written: $(cat "$state_file")"
 wait_for "the service to become ready" status_is '.ready == true'
@@ -106,6 +108,7 @@ status_is '.mode == "speaker" and .devices == 0 and .error == null' \
 jq '.currentMode = "headphone"' "$state_file" >"$work/edit.json"
 mv "$work/edit.json" "$state_file"
 wait_for "the external edit" status_is '.mode == "headphone"'
+wait_for "external edit permissions" state_mode_is_private
 
 # The service's own save is watched like any other change, but reloading it
 # must not replace the in-memory state: exactly one state change per action.

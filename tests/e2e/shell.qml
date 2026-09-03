@@ -27,7 +27,10 @@ ShellRoot {
       return
     }
     var manifest = { id: "melonamin.audio-priority" }
-    if (!withoutSourceDir) manifest.__sourceDir = pluginDir
+    if (!withoutSourceDir) {
+      manifest.__sourceDir = pluginDir
+      manifest.__testBinDir = pluginDir + "/tests/fixtures/bin"
+    }
     instance.manifest = manifest
     instance.stateChanged.connect(function() { root.stateChanges++ })
     service = instance
