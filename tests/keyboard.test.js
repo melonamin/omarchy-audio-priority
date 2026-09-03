@@ -55,16 +55,16 @@ const microphone = { uid: "input:microphone", type: "input", category: "input", 
 {
   assert.deepEqual(
     Keyboard.actionsFor(speaker, "speaker", false, false).map(action => action.id),
-    ["category", "ignore", "ignore-entirely", "never"]
+    ["rename", "category", "ignore", "ignore-entirely", "never"]
   )
   assert.deepEqual(
     Keyboard.actionsFor(microphone, "input", false, false).map(action => action.id),
-    ["ignore", "never"]
+    ["rename", "ignore", "never"]
   )
   const disconnected = { ...speaker, isConnected: false }
   assert.deepEqual(
     Keyboard.actionsFor(disconnected, "speaker", true, false).map(action => action.id),
-    ["category", "ignore", "forget"]
+    ["rename", "category", "ignore", "forget"]
   )
 }
 

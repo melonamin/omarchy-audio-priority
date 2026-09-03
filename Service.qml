@@ -317,6 +317,19 @@ Item {
     revision++
   }
 
+  function friendlyName(device) {
+    return Model.friendlyName(state, device)
+  }
+
+  function displayName(device) {
+    return Model.displayName(state, device)
+  }
+
+  function setDeviceName(device, name) {
+    if (!device || !device.uid) return
+    replaceState(Model.setDeviceName(state, device.uid, name), true)
+  }
+
   function setHidden(device, category, hidden) {
     replaceState(Model.setHidden(state, device, category, hidden), true)
     if (!state.customMode && hidden) reevaluate("ignore")

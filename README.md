@@ -58,7 +58,9 @@ Open the widget and choose a mode:
 Click a device in an automatic mode to promote it to first priority and select
 it. In Custom mode, clicking changes the default without changing priorities.
 Use the drag handle or keyboard shortcuts to reorder. Open a row's action menu
-to classify, ignore, prohibit, or restore it.
+to rename, classify, ignore, prohibit, or restore it. A friendly name replaces
+the system-provided label throughout the panel; saving an empty name restores
+the original label.
 
 The collapsed Remembered Devices section lists disconnected devices. They keep
 their priority and last-seen time, and can be forgotten from their action menu.

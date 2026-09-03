@@ -26,6 +26,7 @@ Item {
   readonly property bool keyboardSelected: !!panelController && panelController.cursorActive
     && panelController.cursorId === targetKind + ":" + device.uid
   readonly property bool expanded: !!panelController && panelController.actionDeviceUid === device.uid
+  readonly property bool renaming: expanded && panelController.renameDeviceUid === device.uid
   readonly property var actions: panelController ? panelController.actionsFor(device, category) : []
   readonly property int baseHeight: Math.max(Style.spacing.popupRowHeight + Style.spacing.sm, Style.space(36))
   readonly property int actionHeight: expanded ? actionColumn.implicitHeight + Style.spacing.lg : 0
@@ -123,7 +124,9 @@ Item {
 
       Text {
         width: parent.width
-        text: root.device ? root.device.name : "Unknown"
+        text: root.device
+          ? (root.service ? root.service.displayName(root.device) : root.device.name)
+          : "Unknown"
         textFormat: Text.PlainText
         color: root.neverUse || root.disconnected ? root.dim : root.foreground
         font.family: Style.font.family
@@ -177,8 +180,58 @@ Item {
     anchors.top: mainRow.bottom
     spacing: Style.spacing.sm
 
+    Row {
+      id: renameEditor
+      visible: root.renaming
+      width: parent.width
+      spacing: Style.spacing.sm
+
+      TextField {
+        id: renameField
+        width: Math.max(0, parent.width - saveRename.width - cancelRename.width - parent.spacing * 2)
+        maximumLength: 80
+        placeholderText: "Friendly name"
+        foreground: root.foreground
+        font.family: Style.font.family
+        font.pixelSize: Style.font.bodySmall
+        horizontalPadding: Style.spacing.controlGap
+        verticalPadding: Style.spacing.controlPaddingY
+        onAccepted: if (root.panelController)
+          root.panelController.commitRename(root.device, text)
+        Keys.onEscapePressed: if (root.panelController) root.panelController.closeActions()
+        onVisibleChanged: if (visible) {
+          text = root.service ? root.service.friendlyName(root.device) : ""
+          Qt.callLater(function() {
+            renameField.forceActiveFocus()
+            renameField.selectAll()
+          })
+        }
+      }
+
+      PanelActionButton {
+        id: saveRename
+        anchors.verticalCenter: parent.verticalCenter
+        iconText: "󰄬"
+        tooltipText: "Save name"
+        foreground: root.foreground
+        bordered: true
+        onClicked: if (root.panelController)
+          root.panelController.commitRename(root.device, renameField.text)
+      }
+
+      PanelActionButton {
+        id: cancelRename
+        anchors.verticalCenter: parent.verticalCenter
+        iconText: "󰅖"
+        tooltipText: "Cancel rename"
+        foreground: root.dim
+        bordered: true
+        onClicked: if (root.panelController) root.panelController.closeActions()
+      }
+    }
+
     Repeater {
-      model: root.expanded ? root.actions : []
+      model: root.expanded && !root.renaming ? root.actions : []
       Button {
         required property var modelData
         required property int index

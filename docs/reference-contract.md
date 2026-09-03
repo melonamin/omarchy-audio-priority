@@ -13,6 +13,7 @@ The persisted fields correspond directly to `PriorityManager.swift`:
 - `customMode`: manual selection with automatic routing disabled
 - `inputPriorities`, `speakerPriorities`, `headphonePriorities`
 - `deviceCategories`
+- `deviceNames`, optional friendly labels keyed by device UID
 - `hiddenMics`, `hiddenSpeakers`, `hiddenHeadphones`
 - `neverUseDevices`
 - `knownDevices`, including direction and last-seen time
@@ -34,6 +35,8 @@ The persisted fields correspond directly to `PriorityManager.swift`:
    collapsed Remembered Devices section. Reordering or click-to-promote saves
    the connected list only, as the reference application's `savePriorities`
    does.
+8. Friendly names affect presentation only. Device identity, classification,
+   priority, and routing continue to use the underlying PipeWire device.
 
 ## Platform translations
 

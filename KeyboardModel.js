@@ -83,7 +83,7 @@ function priorityDestination(key, count) {
 
 function actionsFor(device, category, ignored, neverUse) {
   if (!device) return []
-  var actions = []
+  var actions = [{ id: "rename", label: "Rename", danger: false }]
   if (device.type === "output") {
     actions.push({
       id: "category",

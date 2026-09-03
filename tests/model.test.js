@@ -37,6 +37,7 @@ const usbMic = input("alsa_input.usb", "MV7 USB Microphone")
   const state = Model.defaultState()
   assert.equal(state.currentMode, "speaker")
   assert.equal(state.customMode, false)
+  assert.deepEqual(state.deviceNames, {})
   assert.deepEqual(state.knownDevices, [])
   assert.equal(Model.inferredCategory(speakers), "speaker")
   assert.equal(Model.inferredCategory(display), "speaker")
@@ -78,12 +79,35 @@ const usbMic = input("alsa_input.usb", "MV7 USB Microphone")
     currentMode: "nonsense",
     customMode: 1,
     inputPriorities: ["a", "a", ""],
-    deviceCategories: { a: "headphone", b: "invalid" }
+    deviceCategories: { a: "headphone", b: "invalid" },
+    deviceNames: { a: "  Desk\n\u202e speakers\t ", b: "" }
   })
   assert.equal(normalized.currentMode, "speaker")
   assert.equal(normalized.customMode, false)
   assert.deepEqual(normalized.inputPriorities, ["a"])
   assert.deepEqual(normalized.deviceCategories, { a: "headphone" })
+  assert.deepEqual(normalized.deviceNames, { a: "Desk speakers" })
+}
+
+{
+  let state = Model.setDeviceName(Model.defaultState(), speakers.uid, "  Office  ")
+  assert.equal(Model.friendlyName(state, speakers), "Office")
+  assert.equal(Model.displayName(state, speakers), "Office")
+  assert.equal(Model.displayName(state, display), display.name)
+
+  state = Model.setDeviceName(state, speakers.uid, "x".repeat(Model.MAX_DEVICE_NAME_LENGTH + 10))
+  assert.equal(Model.friendlyName(state, speakers).length, Model.MAX_DEVICE_NAME_LENGTH)
+
+  state = Model.setDeviceName(state, speakers.uid, "<b>Desk</b> & speakers")
+  assert.equal(Model.displayName(state, speakers), "<b>Desk</b> & speakers")
+
+  state = Model.setDeviceName(state, speakers.uid, "   ")
+  assert.equal(Model.friendlyName(state, speakers), "")
+  assert.equal(Model.displayName(state, speakers), speakers.name)
+
+  state = Model.setDeviceName(state, speakers.uid, "Desk")
+  state = Model.forgetDevice(state, speakers.uid)
+  assert.equal(Model.friendlyName(state, speakers), "")
 }
 
 {

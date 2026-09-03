@@ -2,10 +2,19 @@ var STATE_VERSION = 1
 var MAX_STATE_TEXT_LENGTH = 262144
 var MAX_STATE_ITEMS = 256
 var MAX_STRING_LENGTH = 512
+var MAX_DEVICE_NAME_LENGTH = 80
 
 function boundedString(value, fallback) {
   var text = String(value || fallback || "")
   return text.length > MAX_STRING_LENGTH ? text.slice(0, MAX_STRING_LENGTH) : text
+}
+
+function sanitizedDeviceName(value) {
+  var text = String(value || "")
+    .replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+  return text.slice(0, MAX_DEVICE_NAME_LENGTH)
 }
 
 function clone(value) {
@@ -45,6 +54,19 @@ function stringMap(value, allowedValues) {
   return result
 }
 
+function deviceNameMap(value) {
+  var source = value && typeof value === "object" && !Array.isArray(value) ? value : {}
+  var result = {}
+  var keys = Object.keys(source)
+  for (var i = 0; i < keys.length && i < MAX_STATE_ITEMS; i++) {
+    var uid = boundedString(keys[i])
+    var name = sanitizedDeviceName(source[keys[i]])
+    if (!uid || !name) continue
+    result[uid] = name
+  }
+  return result
+}
+
 function defaultState() {
   return {
     version: STATE_VERSION,
@@ -54,6 +76,7 @@ function defaultState() {
     speakerPriorities: [],
     headphonePriorities: [],
     deviceCategories: {},
+    deviceNames: {},
     hiddenMics: [],
     hiddenSpeakers: [],
     hiddenHeadphones: [],
@@ -96,6 +119,7 @@ function normalizeState(value) {
     speakerPriorities: uniqueStrings(source.speakerPriorities),
     headphonePriorities: uniqueStrings(source.headphonePriorities),
     deviceCategories: stringMap(source.deviceCategories, ["speaker", "headphone"]),
+    deviceNames: deviceNameMap(source.deviceNames),
     hiddenMics: uniqueStrings(source.hiddenMics),
     hiddenSpeakers: uniqueStrings(source.hiddenSpeakers),
     hiddenHeadphones: uniqueStrings(source.hiddenHeadphones),
@@ -512,6 +536,26 @@ function setCategory(stateValue, uid, category) {
   return state
 }
 
+function friendlyName(stateValue, device) {
+  if (!device || !device.uid) return ""
+  var names = stateValue && stateValue.deviceNames ? stateValue.deviceNames : {}
+  return sanitizedDeviceName(names[device.uid])
+}
+
+function displayName(stateValue, device) {
+  return friendlyName(stateValue, device) || boundedString(device && device.name, "Unknown")
+}
+
+function setDeviceName(stateValue, uid, name) {
+  var state = normalizeState(stateValue)
+  var key = boundedString(uid)
+  if (!key) return state
+  var value = sanitizedDeviceName(name)
+  if (value) state.deviceNames[key] = value
+  else delete state.deviceNames[key]
+  return state
+}
+
 function setMembership(list, uid, enabled) {
   var next = uniqueStrings(list)
   var index = next.indexOf(uid)
@@ -545,6 +589,7 @@ function forgetDevice(stateValue, uid) {
   var state = normalizeState(stateValue)
   var key = boundedString(uid)
   state.knownDevices = state.knownDevices.filter(function(device) { return device.uid !== key })
+  delete state.deviceNames[key]
   return state
 }
 
@@ -582,6 +627,7 @@ if (typeof module !== "undefined") {
     MAX_STATE_TEXT_LENGTH: MAX_STATE_TEXT_LENGTH,
     MAX_STATE_ITEMS: MAX_STATE_ITEMS,
     MAX_STRING_LENGTH: MAX_STRING_LENGTH,
+    MAX_DEVICE_NAME_LENGTH: MAX_DEVICE_NAME_LENGTH,
     defaultState: defaultState,
     normalizeState: normalizeState,
     serializeState: serializeState,
@@ -607,6 +653,9 @@ if (typeof module !== "undefined") {
     setMode: setMode,
     setCustomMode: setCustomMode,
     setCategory: setCategory,
+    friendlyName: friendlyName,
+    displayName: displayName,
+    setDeviceName: setDeviceName,
     setHidden: setHidden,
     setHiddenEntirely: setHiddenEntirely,
     setNeverUse: setNeverUse,

@@ -22,6 +22,7 @@ Panel {
   property string actionDeviceUid: ""
   property string actionCategory: ""
   property int actionIndex: -1
+  property string renameDeviceUid: ""
 
   readonly property int serviceRevision: service ? service.revision : 0
   readonly property color foreground: bar ? bar.foreground : Color.foreground
@@ -185,6 +186,17 @@ Panel {
     actionDeviceUid = ""
     actionCategory = ""
     actionIndex = -1
+    renameDeviceUid = ""
+  }
+
+  function beginRename(device) {
+    if (!device || !device.uid) return
+    renameDeviceUid = device.uid
+  }
+
+  function commitRename(device, name) {
+    if (service && device) service.setDeviceName(device, name)
+    closeActions()
   }
 
   function moveAction(delta) {
@@ -203,6 +215,10 @@ Panel {
 
   function runDeviceAction(device, category, actionId) {
     if (!service || !device) return
+    if (actionId === "rename") {
+      beginRename(device)
+      return
+    }
     if (actionId === "category")
       service.setCategory(device, category === "headphone" ? "speaker" : "headphone")
     else if (actionId === "ignore")
@@ -292,6 +308,7 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
+      blocked: root.renameDeviceUid !== ""
       onMoveRequested: function(dx, dy) {
         if (root.actionDeviceUid) {
           if (dy !== 0) root.moveAction(dy)

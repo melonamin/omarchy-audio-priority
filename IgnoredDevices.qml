@@ -47,7 +47,8 @@ Column {
         anchors.right: restore.left
         anchors.rightMargin: Style.spacing.md
         anchors.verticalCenter: parent.verticalCenter
-        text: (modelData.glyph || "󰈈") + "  " + modelData.name
+        text: (modelData.glyph || "󰈈") + "  "
+          + (root.service ? root.service.displayName(modelData) : modelData.name)
         textFormat: Text.PlainText
         color: root.dim
         font.family: Style.font.family
