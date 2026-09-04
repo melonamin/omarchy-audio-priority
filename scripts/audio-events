@@ -11,11 +11,38 @@ else
   [[ -x $pactl_bin ]] || exit 69
 fi
 
+# Keep the subscriber as a directly tracked child so teardown can terminate and
+# reap it. Device-controlled fields never enter Quickshell.
+coproc AUDIO_EVENTS_SOURCE { exec "$pactl_bin" subscribe; }
+source_pid=$AUDIO_EVENTS_SOURCE_PID
+exec {source_fd}<&"${AUDIO_EVENTS_SOURCE[0]}"
+
+cleanup() {
+  trap - EXIT INT TERM
+  if [[ -n ${source_pid:-} ]]; then
+    /usr/bin/kill -TERM "$source_pid" 2>/dev/null || true
+    wait "$source_pid" 2>/dev/null || true
+  fi
+  exec {source_fd}<&-
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 # Emit only a fixed token and coalesce bursts to at most one notification per
-# second. Device-controlled fields never enter the shell process.
-"$pactl_bin" subscribe | /usr/bin/awk '
-  / on (sink|source|card|server) #/ {
-    now = systime()
-    if (now != last) { print "changed"; fflush(); last = now }
-  }
-'
+# second.
+last=0
+while IFS= read -r line <&"$source_fd"; do
+  case $line in
+    *" on sink #"*|*" on source #"*|*" on card #"*|*" on server #"*)
+      printf -v now '%(%s)T' -1
+      if [[ $now != "$last" ]]; then
+        printf 'changed\n'
+        last=$now
+      fi
+      ;;
+  esac
+done
+
+wait "$source_pid"
+source_pid=

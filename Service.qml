@@ -20,8 +20,6 @@ Item {
   readonly property string home: Quickshell.env("HOME")
   readonly property string runtimeDir: String(Quickshell.env("XDG_RUNTIME_DIR") || "")
   property string omarchyPath: String(Quickshell.env("OMARCHY_PATH") || "/usr/share/omarchy")
-  readonly property string configDir: home + "/.config/omarchy"
-  readonly property string statePath: configDir + "/audio-priority.json"
   readonly property var childEnvironment: {
     var env = {
       "HOME": home,
@@ -39,6 +37,8 @@ Item {
       env["AUDIO_PRIORITY_TEST_BIN"] = testBinDir
       env["AUDIO_PRIORITY_TEST_DIR"] = String(Quickshell.env("AUDIO_PRIORITY_TEST_DIR") || "")
       env["AUDIO_PRIORITY_TEST_KEEP_DEFAULT"] = String(Quickshell.env("AUDIO_PRIORITY_TEST_KEEP_DEFAULT") || "0")
+      env["AUDIO_PRIORITY_TEST_EVENTS"] = String(Quickshell.env("AUDIO_PRIORITY_TEST_EVENTS") || "0")
+      env["AUDIO_PRIORITY_TEST_EVENTS_HOLD"] = String(Quickshell.env("AUDIO_PRIORITY_TEST_EVENTS_HOLD") || "0")
     }
     return env
   }
@@ -48,10 +48,12 @@ Item {
 
   property var state: Model.defaultState()
   property bool stateReady: false
-  property bool stateMissing: false
-  property bool directoryReady: false
   property bool pendingSave: false
-  property bool stateReloadPending: false
+  property bool stopping: false
+  property bool stateReadPending: false
+  property bool stateWriteQueued: false
+  property string queuedWriteText: ""
+  property string activeWriteText: ""
   property bool inventoryReady: false
   property string inventorySignature: ""
   property var connectedDevices: []
@@ -65,10 +67,9 @@ Item {
   property string lastSwitchReason: ""
   property var queuedOutput: null
   property var queuedInput: null
-  // The text most recently handed to the state file. The file is watched, and
-  // the atomic rename of our own save arrives as a change like any other; the
-  // reload it triggers is skipped so it can never clobber a newer in-memory
-  // state with the older one that was still being written.
+  // The text most recently committed by the state helper. Polling sees our own
+  // atomic rename like any external edit; matching text is skipped so it cannot
+  // clobber newer in-memory state while a follow-up write is queued.
   property string lastWrittenText: ""
   // Delay before the PulseAudio event stream is relaunched after it exits.
   property int eventRetryDelay: Model.EVENT_RETRY_BASE_MS
@@ -119,10 +120,38 @@ Item {
 
   function startRuntime() {
     if (!sourceDir) return
+    stopping = false
     audioEvents.command = boundedCommand(21600, "audio-events", [])
     audioEvents.running = true
-    directoryInit.command = boundedCommand(4, "prepare-state", [configDir, statePath])
-    directoryInit.running = true
+    readState()
+  }
+
+  function stopRuntime() {
+    stopping = true
+    topologyDebounce.stop()
+    inventoryRefresh.stop()
+    statePoll.stop()
+    audioEventsRestart.stop()
+    queuedOutput = null
+    queuedInput = null
+    statusRefreshPending = false
+    stateReadPending = false
+    stateWriteQueued = false
+    queuedWriteText = ""
+    var processes = [audioEvents, availabilityProc, outputRoute, inputRoute, stateRead, stateWrite]
+    for (var i = 0; i < processes.length; i++) {
+      if (processes[i].running) processes[i].running = false
+    }
+  }
+
+  function readState() {
+    if (!sourceDir || stopping) return
+    if (stateRead.running) {
+      stateReadPending = true
+      return
+    }
+    stateReadPending = false
+    stateRead.running = true
   }
 
   function nodeProperties(node) {
@@ -227,6 +256,7 @@ Item {
   }
 
   function scheduleTopologyRefresh() {
+    if (stopping) return
     topologyDebounce.restart()
   }
 
@@ -234,7 +264,7 @@ Item {
   // A request that arrives while the helper is running is remembered so the
   // final state is never missed.
   function refreshAvailability() {
-    if (!sourceDir) return
+    if (!sourceDir || stopping) return
     if (availabilityProc.running) { statusRefreshPending = true; return }
     availabilityProc.running = true
   }
@@ -246,7 +276,7 @@ Item {
   }
 
   function requestOutput(device, reason) {
-    if (!device || device.isConnected === false || !device.nodeName) return
+    if (stopping || !device || device.isConnected === false || !device.nodeName) return
     if (device.uid === currentOutputUid && !outputRoute.running) return
     if (outputRoute.running) { queuedOutput = { device: device, reason: reason }; return }
     var nativeNode = nativeNodeFor(device)
@@ -259,7 +289,7 @@ Item {
   }
 
   function requestInput(device, reason) {
-    if (!device || device.isConnected === false || !device.nodeName) return
+    if (stopping || !device || device.isConnected === false || !device.nodeName) return
     if (device.uid === currentInputUid && !inputRoute.running) return
     if (inputRoute.running) { queuedInput = { device: device, reason: reason }; return }
     var nativeNode = nativeNodeFor(device)
@@ -403,7 +433,6 @@ Item {
   }
 
   function initializeState() {
-    stateMissing = false
     stateReady = true
     state = Model.defaultState()
     revision++
@@ -413,7 +442,11 @@ Item {
 
   function consumeStateText(text) {
     var content = String(text || "")
-    if (stateReady && content === lastWrittenText) return
+    if (stateReady && (content === lastWrittenText || content === activeWriteText
+        || (stateWriteQueued && content === queuedWriteText))) {
+      stateError = ""
+      return
+    }
     var loaded = Model.loadState(content)
     if (loaded.empty) {
       // At startup an empty file holds nothing worth protecting, so start from
@@ -421,8 +454,7 @@ Item {
       // same empty file for a moment; the in-memory state is kept and the next
       // save restores the file.
       if (stateReady) return
-      stateMissing = true
-      if (directoryReady) initializeState()
+      initializeState()
       return
     }
     if (!loaded.value) {
@@ -440,39 +472,43 @@ Item {
     refreshAvailability()
   }
 
-  function revalidateStateFile() {
-    stateReloadPending = true
-    if (!stateRevalidate.running) stateRevalidate.running = true
-  }
-
-  // The write is deferred to the next event-loop pass. Quickshell's FileView
-  // drops a write that is started from inside its own load handler (the
-  // handler runs before the finished load lets go of the operation slot), and
-  // the deferral also collapses several changes made in one pass into one
-  // write.
+  // Deferring collapses several state changes made in one event-loop pass into
+  // one descriptor-safe helper write.
   function persistState() {
-    if (!stateReady) return
+    if (!stateReady || stopping) return
     pendingSave = true
-    if (!directoryReady) return
     Qt.callLater(writeState)
   }
 
   function writeState() {
-    if (!stateReady || !directoryReady) return
+    if (!stateReady || stopping) return
     var serialized = Model.serializeState(state)
     if (serialized.error) {
       pendingSave = false
       stateError = serialized.error
       return
     }
-    lastWrittenText = serialized.text
-    stateFile.setText(lastWrittenText)
+    queuedWriteText = serialized.text
+    stateWriteQueued = true
+    if (!stateWrite.running) startStateWrite()
+  }
+
+  function startStateWrite() {
+    if (!stateWriteQueued || stopping) return
+    activeWriteText = queuedWriteText
+    queuedWriteText = ""
+    stateWriteQueued = false
+    stateWrite.running = true
   }
 
   onPipewireNodesChanged: scheduleTopologyRefresh()
   onDefaultSinkChanged: revision++
   onDefaultSourceChanged: revision++
-  onSourceDirChanged: if (sourceDir) Qt.callLater(startRuntime)
+  onSourceDirChanged: {
+    if (sourceDir) Qt.callLater(startRuntime)
+    else stopRuntime()
+  }
+  Component.onDestruction: stopRuntime()
 
   Timer {
     id: topologyDebounce
@@ -486,10 +522,22 @@ Item {
   // net in case the event stream is unavailable, matching the built-in audio
   // panel's cadence.
   Timer {
+    id: inventoryRefresh
     interval: 15000
     repeat: true
-    running: true
+    running: !root.stopping
     onTriggered: root.refreshAvailability()
+  }
+
+  // External state edits are loaded through the same descriptor-safe helper as
+  // startup. The fixed interval bounds process fan-out, and overlapping reads
+  // collapse into one follow-up run.
+  Timer {
+    id: statePoll
+    interval: 1000
+    repeat: true
+    running: !!root.sourceDir && !root.stopping
+    onTriggered: root.readState()
   }
 
   // The stream is relaunched when it exits. A stream that keeps dying at once
@@ -506,6 +554,7 @@ Item {
     }
     onStarted: root.eventStartedAt = Date.now()
     onExited: {
+      if (root.stopping) return
       audioEventsRestart.interval = root.eventRetryDelay
       root.eventRetryDelay = Model.nextEventRetryDelay(root.eventRetryDelay, Date.now() - root.eventStartedAt)
       audioEventsRestart.restart()
@@ -516,7 +565,7 @@ Item {
     id: audioEventsRestart
     interval: Model.EVENT_RETRY_BASE_MS
     repeat: false
-    onTriggered: audioEvents.running = true
+    onTriggered: if (!root.stopping) audioEvents.running = true
   }
 
   Process {
@@ -526,6 +575,7 @@ Item {
     environment: root.childEnvironment
     stdout: StdioCollector { id: availabilityOutput; waitForEnd: true }
     onExited: function(exitCode) {
+      if (root.stopping) return
       if (exitCode === 0) {
         root.sinkStatus = Model.parseSinkStatus(availabilityOutput.text)
         root.availabilityError = ""
@@ -546,6 +596,7 @@ Item {
     environment: root.childEnvironment
     stderr: StdioCollector { id: outputRouteError; waitForEnd: true }
     onExited: function(exitCode) {
+      if (root.stopping) return
       if (exitCode !== 0) root.routeError = String(outputRouteError.text || "Could not change audio output").trim()
       root.revision++
       var queued = root.queuedOutput
@@ -560,6 +611,7 @@ Item {
     environment: root.childEnvironment
     stderr: StdioCollector { id: inputRouteError; waitForEnd: true }
     onExited: function(exitCode) {
+      if (root.stopping) return
       if (exitCode !== 0) root.routeError = String(inputRouteError.text || "Could not change audio input").trim()
       root.revision++
       var queued = root.queuedInput
@@ -569,64 +621,41 @@ Item {
   }
 
   Process {
-    id: directoryInit
-    running: false
+    id: stateRead
+    command: root.boundedCommand(4, "state-store", ["read"])
     clearEnvironment: true
     environment: root.childEnvironment
-    stderr: StdioCollector { id: directoryInitError; waitForEnd: true }
+    stdout: StdioCollector { id: stateReadOutput; waitForEnd: true }
+    stderr: StdioCollector { id: stateReadError; waitForEnd: true }
     onExited: function(exitCode) {
-      if (exitCode !== 0) {
-        root.stateError = String(directoryInitError.text || "Could not prepare " + root.configDir).trim()
-        return
-      }
-      root.directoryReady = true
-      if (root.stateMissing) root.initializeState()
-      else if (root.pendingSave) root.persistState()
+      if (root.stopping) return
+      if (exitCode === 0) root.consumeStateText(stateReadOutput.text)
+      else root.stateError = String(stateReadError.text || "Could not read audio-priority.json safely").trim()
+      if (root.stateReadPending) Qt.callLater(root.readState)
     }
   }
 
   Process {
-    id: stateRevalidate
-    command: root.boundedCommand(4, "prepare-state", [root.configDir, root.statePath])
+    id: stateWrite
+    command: root.boundedCommand(4, "state-store", ["write"])
     clearEnvironment: true
     environment: root.childEnvironment
+    stdinEnabled: true
+    stderr: StdioCollector { id: stateWriteError; waitForEnd: true }
+    onStarted: write(JSON.stringify({ text: root.activeWriteText }) + "\n")
     onExited: function(exitCode) {
-      if (exitCode !== 0) {
-        root.stateReloadPending = false
-        root.stateError = "audio-priority.json failed ownership, type, or permission checks"
-        return
+      if (root.stopping) return
+      if (exitCode === 0) {
+        root.lastWrittenText = root.activeWriteText
+        root.stateError = ""
+      } else {
+        root.stateError = String(stateWriteError.text || "Could not write audio-priority.json safely").trim()
+        root.stateWriteQueued = false
+        root.queuedWriteText = ""
       }
-      if (root.stateReloadPending) {
-        root.stateReloadPending = false
-        stateFile.reload()
-      }
-    }
-  }
-
-  // The file watch is set up when the path is assigned and silently does
-  // nothing if the directory does not exist yet, so the path waits for the
-  // directory: on a fresh install the config directory is created by the
-  // process above, and a watch created before that would never fire.
-  FileView {
-    id: stateFile
-    path: root.directoryReady ? root.statePath : ""
-    watchChanges: true
-    atomicWrites: true
-    printErrors: false
-    onLoaded: root.consumeStateText(text())
-    onFileChanged: root.revalidateStateFile()
-    onLoadFailed: function(error) {
-      if (error === FileViewError.FileNotFound && !root.stateReady) {
-        root.stateMissing = true
-        if (root.directoryReady) root.initializeState()
-        return
-      }
-      root.stateError = "audio-priority.json: " + FileViewError.toString(error)
-    }
-    onSaved: { root.pendingSave = false; root.stateError = "" }
-    onSaveFailed: function(error) {
-      root.pendingSave = false
-      root.stateError = "audio-priority.json save failed: " + FileViewError.toString(error)
+      root.activeWriteText = ""
+      if (exitCode === 0 && root.stateWriteQueued) Qt.callLater(root.startStateWrite)
+      else root.pendingSave = false
     }
   }
 

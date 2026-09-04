@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "melonamin.audio-priority",
   "name": "Audio Priority",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": "melonamin",
   "description": "Automatically select the highest-priority available speakers, headphones, and microphone.",
   "homepage": "https://github.com/melonamin/omarchy-audio-priority",

@@ -140,6 +140,27 @@ wait_for "event-stream backoff" status_is '.events == false and .eventRetryMs >=
 
 stop_shell
 
+# Destroying only the plugin service must terminate and reap the complete live
+# event-stream process tree while the hosting Quickshell process stays running.
+export AUDIO_PRIORITY_TEST_EVENTS_HOLD=1
+rm -f "$AUDIO_PRIORITY_TEST_DIR/audio-event-pid"
+start_shell
+wait_for "the held audio event subscriber" test -s "$AUDIO_PRIORITY_TEST_DIR/audio-event-pid"
+event_pactl_pid=$(<"$AUDIO_PRIORITY_TEST_DIR/audio-event-pid")
+wait_for "the held subscriber child" pgrep -P "$event_pactl_pid"
+event_leaf_pid=$(pgrep -P "$event_pactl_pid" | head -1)
+event_script_pid=$(ps -o ppid= -p "$event_pactl_pid" | tr -d ' ')
+event_timeout_pid=$(ps -o ppid= -p "$event_script_pid" | tr -d ' ')
+[[ -n $event_script_pid && -n $event_timeout_pid ]] \
+  || fail "could not identify the audio event process tree"
+host_call destroyService >/dev/null
+wait_for "the event subscriber teardown" test ! -e "/proc/$event_pactl_pid"
+[[ ! -e /proc/$event_leaf_pid ]] || fail "event subscriber child survived service destruction"
+[[ ! -e /proc/$event_script_pid ]] || fail "audio-events survived service destruction"
+[[ ! -e /proc/$event_timeout_pid ]] || fail "timeout survived service destruction"
+unset AUDIO_PRIORITY_TEST_EVENTS_HOLD
+stop_shell
+
 # Without a source directory in the manifest the service says so instead of
 # discovering devices forever.
 AUDIO_PRIORITY_E2E_NO_SOURCE_DIR=1 start_shell

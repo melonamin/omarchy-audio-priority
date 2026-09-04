@@ -51,5 +51,10 @@ ShellRoot {
       root.service.setMode(mode)
       return "ok"
     }
+    function destroyService(): string {
+      root.service.destroy()
+      root.service = null
+      return "ok"
+    }
   }
 }

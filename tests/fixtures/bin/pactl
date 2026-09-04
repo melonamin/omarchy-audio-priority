@@ -11,7 +11,13 @@ case ${1:-} in
     fi
     ;;
   subscribe)
-    [[ ${AUDIO_PRIORITY_TEST_EVENTS:-0} != 1 ]] || printf "Event 'change' on sink #1\nEvent 'change' on source #2\n"
+    if [[ ${AUDIO_PRIORITY_TEST_EVENTS_HOLD:-0} == 1 ]]; then
+      printf '%s\n' "$$" >"$AUDIO_PRIORITY_TEST_DIR/audio-event-pid"
+      trap 'exit 0' INT TERM
+      while :; do sleep 1; done
+    elif [[ ${AUDIO_PRIORITY_TEST_EVENTS:-0} == 1 ]]; then
+      printf "Event 'change' on sink #1\nEvent 'change' on source #2\n"
+    fi
     ;;
   list)
     [[ ${2:-} == sinks ]] || { echo "unexpected pactl invocation: $*" >&2; exit 64; }

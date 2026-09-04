@@ -97,17 +97,20 @@ selection in Custom mode does not change priorities; explicit reordering still
 does. Enabling automatic mode immediately applies the highest-priority available
 input and output.
 
-The file is watched. An edit made outside the panel is applied to the connected
-devices as soon as it is saved. An empty file at startup is treated as a fresh
-install; one that becomes empty while the service runs is ignored, because some
-editors truncate before they write, and the next save restores it. A file that
-is not valid JSON is left untouched, and the bar widget shows a
+The file is checked once per second through a descriptor-safe helper. An edit
+made outside the panel is applied to the connected devices after it is saved.
+An empty file at startup is treated as a fresh install; one that becomes empty
+while the service runs is ignored, because some editors truncate before they
+write, and the next save restores it. A file that is not valid JSON is left
+untouched, and the bar widget shows a
 warning glyph with the parse error in its tooltip until it is repaired.
-The plugin limits the state document to 262,144 characters, each persisted list
-to 256 entries, and device-controlled fields to 512 characters. Oversized state
-is rejected while the last valid in-memory configuration remains active. The
-state directory and file are required to be owned by the current user, may not
-be symlinks, and are kept at modes `0700` and `0600` respectively.
+The plugin limits the state document to 262,144 characters and bytes, each
+persisted list to 256 entries, and device-controlled fields to 512 characters.
+Oversized state is rejected while the last valid in-memory configuration
+remains active. The helper opens each path component and the state file with
+`O_NOFOLLOW`, verifies ownership and type on the opened descriptors, bounds
+reads, and replaces the state atomically through the verified directory
+descriptor. The state directory and file are kept at modes `0700` and `0600`.
 
 A sound card whose node exposes several ports, such as a laptop's speakers and
 headphone jack, is remembered as one device per port (`Analog Stereo · Speaker`
@@ -120,8 +123,8 @@ timer only backs that stream up.
 - Omarchy Quattro 4.0.2 or newer with plugin support
 - Quickshell 0.3.1 or newer
 - PipeWire and WirePlumber
-- Bash, GNU coreutils, `awk`, `pactl`, `wpctl`, and Omarchy's standard audio
-  helpers (`omarchy-audio-input-set-default`,
+- Python 3, Bash, GNU coreutils, `awk`, `pactl`, `wpctl`, and Omarchy's standard
+  audio helpers (`omarchy-audio-input-set-default`,
   `omarchy-audio-output-set-default`, and
   `omarchy-audio-sink-availability`)
 

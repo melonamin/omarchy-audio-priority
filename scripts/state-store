@@ -1,0 +1,234 @@
+#!/usr/bin/python3
+"""Descriptor-safe storage for Audio Priority's bounded JSON state."""
+
+import errno
+import json
+import os
+import secrets
+import stat
+import sys
+
+
+STATE_NAME = "audio-priority.json"
+MAX_STATE_BYTES = 262_144
+MAX_PROTOCOL_BYTES = MAX_STATE_BYTES * 6 + 1024
+DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW
+FILE_FLAGS = os.O_CLOEXEC | os.O_NOFOLLOW
+
+
+class StateStoreError(Exception):
+    pass
+
+
+def require_safe_directory(fd, label, owner, private=False):
+    info = os.fstat(fd)
+    if not stat.S_ISDIR(info.st_mode):
+        raise StateStoreError(f"{label} is not a directory")
+    if info.st_uid != owner:
+        raise StateStoreError(f"{label} has an unexpected owner")
+    if info.st_mode & 0o022:
+        raise StateStoreError(f"{label} is writable by another user")
+    if private:
+        os.fchmod(fd, 0o700)
+
+
+def open_home(home, owner):
+    if not home or not os.path.isabs(home) or os.path.normpath(home) != home:
+        raise StateStoreError("HOME is not an absolute normalized path")
+    components = home.split(os.sep)[1:]
+    if not components or any(part in ("", ".", "..") for part in components):
+        raise StateStoreError("HOME contains an unsafe path component")
+
+    current = os.open(os.sep, DIRECTORY_FLAGS)
+    try:
+        for component in components:
+            next_fd = os.open(component, DIRECTORY_FLAGS, dir_fd=current)
+            os.close(current)
+            current = next_fd
+        require_safe_directory(current, "HOME", owner)
+        return current
+    except Exception:
+        os.close(current)
+        raise
+
+
+def open_or_create_directory(parent_fd, name, owner, private=False):
+    try:
+        os.mkdir(name, 0o700, dir_fd=parent_fd)
+    except FileExistsError:
+        pass
+    fd = os.open(name, DIRECTORY_FLAGS, dir_fd=parent_fd)
+    try:
+        require_safe_directory(fd, name, owner, private)
+        return fd
+    except Exception:
+        os.close(fd)
+        raise
+
+
+def open_state_directory():
+    owner = os.getuid()
+    home_fd = open_home(os.environ.get("HOME", ""), owner)
+    try:
+        config_fd = open_or_create_directory(home_fd, ".config", owner)
+    finally:
+        os.close(home_fd)
+    try:
+        return open_or_create_directory(config_fd, "omarchy", owner, private=True)
+    finally:
+        os.close(config_fd)
+
+
+def require_safe_file(fd, owner):
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode):
+        raise StateStoreError("state file is not a regular file")
+    if info.st_uid != owner:
+        raise StateStoreError("state file has an unexpected owner")
+    if info.st_nlink != 1:
+        raise StateStoreError("state file has an unexpected link count")
+    os.fchmod(fd, 0o600)
+    return info
+
+
+def create_empty_state(directory_fd):
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | FILE_FLAGS
+    try:
+        fd = os.open(STATE_NAME, flags, 0o600, dir_fd=directory_fd)
+    except FileExistsError:
+        return
+    try:
+        require_safe_file(fd, os.getuid())
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.fsync(directory_fd)
+
+
+def read_bounded(fd):
+    chunks = []
+    remaining = MAX_STATE_BYTES + 1
+    while remaining > 0:
+        chunk = os.read(fd, min(65_536, remaining))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    data = b"".join(chunks)
+    if len(data) > MAX_STATE_BYTES:
+        raise StateStoreError(f"state file exceeds the {MAX_STATE_BYTES} byte limit")
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise StateStoreError("state file is not valid UTF-8") from error
+    return data
+
+
+def read_state(directory_fd):
+    try:
+        fd = os.open(STATE_NAME, os.O_RDONLY | FILE_FLAGS, dir_fd=directory_fd)
+    except FileNotFoundError:
+        create_empty_state(directory_fd)
+        fd = os.open(STATE_NAME, os.O_RDONLY | FILE_FLAGS, dir_fd=directory_fd)
+    try:
+        info = require_safe_file(fd, os.getuid())
+        if info.st_size > MAX_STATE_BYTES:
+            raise StateStoreError(f"state file exceeds the {MAX_STATE_BYTES} byte limit")
+        return read_bounded(fd)
+    finally:
+        os.close(fd)
+
+
+def read_write_request():
+    payload = sys.stdin.buffer.readline(MAX_PROTOCOL_BYTES + 1)
+    if len(payload) > MAX_PROTOCOL_BYTES or not payload.endswith(b"\n"):
+        raise StateStoreError("state write request is missing or too large")
+    try:
+        request = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise StateStoreError("state write request is invalid") from error
+    text = request.get("text") if isinstance(request, dict) else None
+    if not isinstance(text, str):
+        raise StateStoreError("state write request has no text field")
+    data = text.encode("utf-8")
+    if len(data) > MAX_STATE_BYTES:
+        raise StateStoreError(f"state write exceeds the {MAX_STATE_BYTES} byte limit")
+    return data
+
+
+def write_all(fd, data):
+    offset = 0
+    while offset < len(data):
+        written = os.write(fd, data[offset:])
+        if written <= 0:
+            raise StateStoreError("state write made no progress")
+        offset += written
+
+
+def write_state(directory_fd, data):
+    temporary_name = ""
+    temporary_fd = -1
+    for _ in range(16):
+        candidate = f".audio-priority.{secrets.token_hex(16)}.tmp"
+        try:
+            temporary_fd = os.open(
+                candidate,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | FILE_FLAGS,
+                0o600,
+                dir_fd=directory_fd,
+            )
+            temporary_name = candidate
+            break
+        except FileExistsError:
+            continue
+    if temporary_fd < 0:
+        raise StateStoreError("could not create a private state temporary file")
+
+    try:
+        require_safe_file(temporary_fd, os.getuid())
+        write_all(temporary_fd, data)
+        os.fsync(temporary_fd)
+        os.replace(
+            temporary_name,
+            STATE_NAME,
+            src_dir_fd=directory_fd,
+            dst_dir_fd=directory_fd,
+        )
+        temporary_name = ""
+        os.fsync(directory_fd)
+    finally:
+        os.close(temporary_fd)
+        if temporary_name:
+            try:
+                os.unlink(temporary_name, dir_fd=directory_fd)
+            except FileNotFoundError:
+                pass
+
+
+def main():
+    if len(sys.argv) != 2 or sys.argv[1] not in ("read", "write"):
+        print("usage: state-store read|write", file=sys.stderr)
+        return 64
+    try:
+        directory_fd = open_state_directory()
+        try:
+            if sys.argv[1] == "read":
+                sys.stdout.buffer.write(read_state(directory_fd))
+            else:
+                write_state(directory_fd, read_write_request())
+        finally:
+            os.close(directory_fd)
+        return 0
+    except (OSError, StateStoreError) as error:
+        if isinstance(error, OSError) and error.errno == errno.ELOOP:
+            message = "state path contains a symlink"
+        elif isinstance(error, StateStoreError):
+            message = str(error)
+        else:
+            message = "state storage operation failed"
+        print(message, file=sys.stderr)
+        return 73
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
