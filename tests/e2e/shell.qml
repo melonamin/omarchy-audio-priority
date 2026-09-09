@@ -10,13 +10,13 @@ ShellRoot {
   id: root
 
   readonly property string pluginDir: String(Quickshell.env("AUDIO_PRIORITY_PLUGIN_DIR") || "")
-  readonly property bool withoutSourceDir: String(Quickshell.env("AUDIO_PRIORITY_E2E_NO_SOURCE_DIR") || "") === "1"
   property var service: null
   property int stateChanges: 0
   property string loadError: ""
 
   Component.onCompleted: {
-    var component = Qt.createComponent("file://" + pluginDir + "/Service.qml")
+    var componentUrl = "file://" + pluginDir.split("/").map(encodeURIComponent).join("/") + "/Service.qml"
+    var component = Qt.createComponent(componentUrl)
     if (component.status !== Component.Ready) {
       loadError = component.errorString()
       return
@@ -27,10 +27,10 @@ ShellRoot {
       return
     }
     instance.omarchyPath = "/usr/share/omarchy"
-    var manifest = { id: "melonamin.audio-priority" }
-    if (!withoutSourceDir) {
-      manifest.__sourceDir = pluginDir
-      manifest.__testBinDir = pluginDir + "/tests/fixtures/bin"
+    // Match the scoped host manifest: no internal installation directory.
+    var manifest = {
+      id: "melonamin.audio-priority",
+      __testBinDir: pluginDir + "/tests/fixtures/bin"
     }
     instance.manifest = manifest
     instance.stateChanged.connect(function() { root.stateChanges++ })

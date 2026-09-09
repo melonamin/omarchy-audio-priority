@@ -13,8 +13,13 @@ Item {
 
   readonly property string pluginId: manifest && manifest.id
     ? String(manifest.id) : "melonamin.audio-priority"
-  readonly property string sourceDir: manifest && manifest.__sourceDir
-    ? String(manifest.__sourceDir) : ""
+  // Scoped host manifests omit installation paths. Resolve from this component
+  // and decode the file URL once before passing paths to Process as argv.
+  readonly property string sourceDir: {
+    var url = String(Qt.resolvedUrl("."))
+    return url.indexOf("file:///") === 0
+      ? decodeURIComponent(url.substring(7)).replace(/\/$/, "") : ""
+  }
   readonly property string testBinDir: manifest && manifest.__testBinDir
     ? String(manifest.__testBinDir) : ""
   readonly property string home: Quickshell.env("HOME")
@@ -77,7 +82,7 @@ Item {
   // Without the plugin's source directory no helper script can run, so the
   // service would otherwise sit at "discovering devices" forever.
   readonly property string setupError: manifest && !sourceDir
-    ? "Plugin manifest has no source directory; helper scripts cannot run" : ""
+    ? "Plugin component has no local source directory; helper scripts cannot run" : ""
   readonly property var deviceLists: {
     var ignored = revision
     return Model.buildDeviceLists(state, connectedDevices)
@@ -504,8 +509,10 @@ Item {
   onPipewireNodesChanged: scheduleTopologyRefresh()
   onDefaultSinkChanged: revision++
   onDefaultSourceChanged: revision++
-  onSourceDirChanged: {
-    if (sourceDir) Qt.callLater(startRuntime)
+  // The host injects the manifest after creation; wait for its configuration
+  // before starting helpers, even though the component path is already known.
+  onManifestChanged: {
+    if (manifest && sourceDir) Qt.callLater(startRuntime)
     else stopRuntime()
   }
   Component.onDestruction: stopRuntime()

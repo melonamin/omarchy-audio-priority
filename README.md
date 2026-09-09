@@ -30,6 +30,12 @@ Audio Priority is configured.
 
 ## Install
 
+Version 0.1.3 adapts to Omarchy's scoped plugin APIs. It fixes the
+"Plugin manifest has no source directory; helper scripts cannot run" startup
+error by resolving helpers relative to the plugin component. Scrolling still
+adjusts volume, but no longer requests the built-in OSD, which the scoped API
+does not allow this plugin to open.
+
 ```bash
 omarchy plugin add https://github.com/melonamin/omarchy-audio-priority.git
 ```
@@ -149,7 +155,8 @@ syntax. It then runs the service end to end under Quickshell against a private
 PipeWire daemon (no session manager, so no real device is ever routed) with the
 Omarchy helpers replaced by fixtures, covering state-file creation, external
 edits, truncation, invalid JSON, the self-save reload guard, event-stream
-backoff, and the missing-source-directory error. The QML files are linted against the Omarchy shell sources found in
+backoff, and startup with scoped manifests from paths containing URL-special
+characters. The QML files are linted against the Omarchy shell sources found in
 `~/.local/share/omarchy/shell` or `/usr/share/omarchy/shell`; set
 `OMARCHY_SHELL_DIR` to point elsewhere. The end-to-end step needs `qs`, `jq`, and a
 `pipewire` binary it can start privately. For local development, symlink the

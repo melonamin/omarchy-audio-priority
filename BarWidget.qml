@@ -34,18 +34,6 @@ BarWidget {
     ? String(priorityService.setupError || priorityService.stateError
       || priorityService.availabilityError || priorityService.routeError || "") : ""
 
-  function outputGlyph() {
-    if (!priorityService) return ""
-    if (priorityService.stateError) return ""
-    if (!priorityService.ready) return ""
-    if (priorityService.outputMuted) return ""
-    var volume = priorityService.outputVolume
-    if (volume >= 0.67) return ""
-    if (volume >= 0.34) return ""
-    if (volume > 0) return ""
-    return ""
-  }
-
   function modeGlyph() {
     if (!priorityService) return "󰓃"
     if (priorityService.customMode) return ""
@@ -107,12 +95,6 @@ BarWidget {
       if (wheel.steps === 0) return
       var value = root.priorityService.outputVolume + wheel.steps * 0.02
       root.priorityService.setOutputVolume(value)
-      if (root.bar && root.bar.shell) {
-        root.bar.shell.summon("omarchy.osd", JSON.stringify({
-          icon: root.outputGlyph(),
-          value: Math.round(Math.max(0, Math.min(1, value)) * 100)
-        }))
-      }
     }
   }
 }

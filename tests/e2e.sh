@@ -161,10 +161,14 @@ wait_for "the event subscriber teardown" test ! -e "/proc/$event_pactl_pid"
 unset AUDIO_PRIORITY_TEST_EVENTS_HOLD
 stop_shell
 
-# Without a source directory in the manifest the service says so instead of
-# discovering devices forever.
-AUDIO_PRIORITY_E2E_NO_SOURCE_DIR=1 start_shell
-wait_for "the setup error" status_is '.ready == false and (.error | test("source directory"))'
+# File URLs must decode spaces, percent signs, and URL delimiters exactly once.
+# Use an actual copy so relative helper resolution cannot use the original path.
+encoded_plugin_dir="$work/plugin space %25 # ? é"
+mkdir -p "$encoded_plugin_dir"
+cp -a "$plugin_dir/Service.qml" "$plugin_dir/Model.js" "$plugin_dir/scripts" "$plugin_dir/tests" "$encoded_plugin_dir/"
+export AUDIO_PRIORITY_PLUGIN_DIR=$encoded_plugin_dir
+start_shell
+wait_for "startup from a URL-encoded path without manifest source metadata" status_is '.ready == true and .error == null'
 stop_shell
 
 printf 'ok — service end to end under Quickshell\n'
