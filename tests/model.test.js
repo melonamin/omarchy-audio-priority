@@ -306,6 +306,20 @@ const usbMic = input("alsa_input.usb", "MV7 USB Microphone")
 }
 
 {
+  const status = Model.parseSourceStatus([
+    "alsa_input.internal\t1",
+    "alsa_input.unavailable\t0",
+    "constructor\t1",
+    "malformed"
+  ].join("\n"))
+  assert.equal(status["alsa_input.internal"], true)
+  assert.equal(status["alsa_input.unavailable"], false)
+  assert.equal(status.constructor, true)
+  assert.equal(status.malformed, undefined)
+  assert.equal(status.toString, undefined, "the source status map has no prototype")
+}
+
+{
   // A laptop's speakers and headphone jack share one PipeWire node. The active
   // port turns it into two devices so the jack drives the Headphones mode.
   const nodeName = "alsa_output.pci-0000_00_1f.3.analog-stereo"

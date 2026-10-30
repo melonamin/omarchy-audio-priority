@@ -64,6 +64,7 @@ Item {
   property var connectedDevices: []
   property var previousConnectedUids: []
   property var sinkStatus: ({})
+  property var sourceStatus: ({})
   property bool statusRefreshPending: false
   property int revision: 0
   property string stateError: ""
@@ -186,7 +187,7 @@ Item {
       nickname: String(node.nickname || node.nick || ""),
       props: nodeProperties(node),
       muted: muted
-    }, sinkStatus)
+    }, sinkStatus, sourceStatus)
   }
 
   function snapshotInventory() {
@@ -270,8 +271,12 @@ Item {
   // final state is never missed.
   function refreshAvailability() {
     if (!sourceDir || stopping) return
-    if (availabilityProc.running) { statusRefreshPending = true; return }
+    if (availabilityProc.running || sourceAvailabilityProc.running) {
+      statusRefreshPending = true
+      return
+    }
     availabilityProc.running = true
+    sourceAvailabilityProc.running = true
   }
 
   function applySelection(selection, reason) {
@@ -591,6 +596,25 @@ Item {
         root.availabilityError = "Could not verify audio output availability"
       }
       if (root.statusRefreshPending) {
+        root.statusRefreshPending = false
+        root.refreshAvailability()
+      }
+    }
+  }
+
+  Process {
+    id: sourceAvailabilityProc
+    command: root.boundedCommand(6, "source-status", [])
+    clearEnvironment: true
+    environment: root.childEnvironment
+    stdout: StdioCollector { id: sourceAvailabilityOutput; waitForEnd: true }
+    onExited: function(exitCode) {
+      if (root.stopping) return
+      if (exitCode === 0) {
+        root.sourceStatus = Model.parseSourceStatus(sourceAvailabilityOutput.text)
+        root.refreshTopology()
+      }
+      if (root.statusRefreshPending && !availabilityProc.running && !sourceAvailabilityProc.running) {
         root.statusRefreshPending = false
         root.refreshAvailability()
       }

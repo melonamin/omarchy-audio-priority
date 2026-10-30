@@ -256,6 +256,22 @@ function parseSinkStatus(raw) {
   return result
 }
 
+// Parses scripts/source-status output: one source per line as
+// name, available (0/1).
+function parseSourceStatus(raw) {
+  var result = lookup()
+  var source = String(raw || "")
+  if (source.length > MAX_STATE_TEXT_LENGTH) return result
+  var lines = source.split("\n")
+  for (var i = 0; i < lines.length && i < MAX_STATE_ITEMS; i++) {
+    var parts = lines[i].split("\t")
+    var available = String(parts[1] || "").trim()
+    if (parts.length < 2 || !parts[0] || !/^[01]$/.test(available)) continue
+    result[boundedString(parts[0])] = available === "1"
+  }
+  return result
+}
+
 function topologySignature(devices) {
   var rows = []
   var values = Array.isArray(devices) ? devices : []
@@ -273,7 +289,7 @@ function topologySignature(devices) {
 // Builds the device record the state machine works with from a PipeWire node
 // (already reduced to plain values) plus the sink status the helper reported.
 // Returns null when the node is not a usable device.
-function buildDevice(state, node, sinkStatus) {
+function buildDevice(state, node, sinkStatus, sourceStatus) {
   if (!node) return null
   var type = node.type === "input" ? "input" : "output"
   var nodeName = boundedString(node.nodeName)
@@ -281,6 +297,7 @@ function buildDevice(state, node, sinkStatus) {
   var props = node.props && typeof node.props === "object" ? node.props : {}
   var status = type === "output" && sinkStatus ? sinkStatus[nodeName] : null
   if (type === "output" && (!status || status.available !== true)) return null
+  if (type === "input" && sourceStatus && sourceStatus[nodeName] === false) return null
   var portName = status ? status.portName : ""
   var portDescription = status ? status.portDescription : ""
   var multiPort = !!status && status.portCount > 1
@@ -637,6 +654,7 @@ if (typeof module !== "undefined") {
     friendlyDeviceLabel: friendlyDeviceLabel,
     deviceGlyph: deviceGlyph,
     parseSinkStatus: parseSinkStatus,
+    parseSourceStatus: parseSourceStatus,
     topologySignature: topologySignature,
     buildDevice: buildDevice,
     inferredCategory: inferredCategory,

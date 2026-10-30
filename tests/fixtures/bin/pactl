@@ -20,8 +20,11 @@ case ${1:-} in
     fi
     ;;
   list)
-    [[ ${2:-} == sinks ]] || { echo "unexpected pactl invocation: $*" >&2; exit 64; }
-    cat "$AUDIO_PRIORITY_TEST_DIR/list-sinks"
+    case ${2:-} in
+      sinks) cat "$AUDIO_PRIORITY_TEST_DIR/list-sinks" ;;
+      sources) cat "$AUDIO_PRIORITY_TEST_DIR/list-sources" ;;
+      *) echo "unexpected pactl invocation: $*" >&2; exit 64 ;;
+    esac
     ;;
   *) echo "unexpected pactl invocation: $*" >&2; exit 64 ;;
 esac

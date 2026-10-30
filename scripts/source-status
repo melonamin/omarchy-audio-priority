@@ -1,0 +1,66 @@
+#!/usr/bin/bash
+# Prints one line per PulseAudio source:
+#   <source name> TAB <available 0|1>
+# PipeWire can expose an unavailable ALSA profile as a node, so node
+# enumeration alone is not sufficient for input devices.
+set -euo pipefail
+
+export LC_ALL=C
+
+if [[ -n ${AUDIO_PRIORITY_TEST_BIN:-} ]]; then
+  [[ $AUDIO_PRIORITY_TEST_BIN == /* && -x $AUDIO_PRIORITY_TEST_BIN/pactl ]] || exit 69
+  pactl_bin=$AUDIO_PRIORITY_TEST_BIN/pactl
+else
+  pactl_bin=/usr/bin/pactl
+  [[ -x $pactl_bin ]] || exit 69
+fi
+
+output_limit=131072
+if ! result=$(timeout -k 1s 3s "$pactl_bin" list sources 2>/dev/null | awk '
+  function emit_source() {
+    if (name == "") return
+    # Sources without ports are usable. Otherwise reject only sources whose
+    # ports are all explicitly marked unavailable.
+    print name "\t" ((port_count == 0 || usable) ? 1 : 0)
+  }
+
+  /^Source #[0-9]+/ {
+    emit_source()
+    name = ""
+    in_ports = 0
+    port_count = 0
+    usable = 0
+    next
+  }
+
+  /^[[:space:]]*Name:/ {
+    name = $2
+    next
+  }
+
+  /^[[:space:]]*Ports:$/ {
+    in_ports = 1
+    next
+  }
+
+  in_ports && /^\tActive Port:/ {
+    in_ports = 0
+    next
+  }
+
+  in_ports && /^\t\t/ {
+    port_count++
+    if ($0 !~ /not available/) usable = 1
+    next
+  }
+
+  END { emit_source() }
+' | head -c $((output_limit + 1))); then
+  echo "Could not read audio source status" >&2
+  exit 1
+fi
+if (( ${#result} > output_limit )); then
+  echo "Audio source status output exceeded its limit" >&2
+  exit 65
+fi
+[[ -z $result ]] || printf '%s\n' "$result"
