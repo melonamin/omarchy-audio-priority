@@ -1,0 +1,37 @@
+Source #50
+	State: RUNNING
+	Name: alsa_input.pci-0000_00_1f.3.analog-stereo
+	Description: Built-in Audio Analog Stereo
+	Ports:
+		analog-input-headset-mic: Headset Microphone (type: Headset, priority: 8800, availability group: Legacy 1, not available)
+		analog-input-internal-mic: Internal Microphone (type: Mic, priority: 8900, availability group: Legacy 2, available)
+	Active Port: analog-input-internal-mic
+	Formats:
+		pcm
+Source #51
+	State: SUSPENDED
+	Name: alsa_input.pci-0000_00_1f.3.analog-stereo-2
+	Description: Built-in Audio Headset Microphone
+	Ports:
+		analog-input-headset-mic: Headset Microphone (type: Headset, priority: 8800, availability group: Legacy 1, not available)
+		analog-input-front-mic: Front Microphone (type: Mic, priority: 8500, availability group: Legacy 3, not available)
+	Active Port: analog-input-headset-mic
+	Formats:
+		pcm
+Source #62
+	State: SUSPENDED
+	Name: alsa_input.usb-Shure_Inc_Shure_MV7-00.analog-stereo
+	Description: MV7 USB Microphone Analog Stereo
+	Ports:
+		analog-input-mic: Microphone (type: Mic, priority: 8700, availability unknown)
+	Active Port: analog-input-mic
+	Formats:
+		pcm
+Source #80
+	State: SUSPENDED
+	Name: noise-suppression-source
+	Description: Noise Suppression
+	Ports:
+	Active Port:
+	Formats:
+		pcm

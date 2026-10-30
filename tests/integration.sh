@@ -12,6 +12,7 @@ touch "$test_dir/calls"
 printf 'old-sink\n' >"$test_dir/sink"
 printf 'old-source\n' >"$test_dir/source"
 cp "$plugin_dir/tests/fixtures/pactl-list-sinks.txt" "$test_dir/list-sinks"
+cp "$plugin_dir/tests/fixtures/pactl-list-sources.txt" "$test_dir/list-sources"
 printf '%s\t%s\n' \
   'alsa_output.pci-0000_00_1f.3.analog-stereo' 1 \
   'alsa_output.usb-Apple_Inc._Studio_Display-02.analog-stereo' 1 \
@@ -21,6 +22,7 @@ printf '%s\t%s\n' \
 /usr/bin/bash -n \
   "$plugin_dir/scripts/route-device" \
   "$plugin_dir/scripts/sink-status" \
+  "$plugin_dir/scripts/source-status" \
   "$plugin_dir/scripts/audio-events"
 [[ -x $plugin_dir/scripts/state-store ]]
 
@@ -50,6 +52,15 @@ printf '%s\t%s\n' \
   'alsa_output.usb-Apple_Inc._Studio_Display-02.analog-stereo' 1 \
   'alsa_output.usb-Audient_EVO4-00.HiFi__Headphones__sink' 1 \
   'speaker-tuning' 0 >"$test_dir/availability"
+
+# source-status rejects only sources whose ports are all unavailable; sources
+# with an available or unknown port, or with no ports at all, stay usable.
+diff -u <(printf '%s\n' \
+  $'alsa_input.pci-0000_00_1f.3.analog-stereo\t1' \
+  $'alsa_input.pci-0000_00_1f.3.analog-stereo-2\t0' \
+  $'alsa_input.usb-Shure_Inc_Shure_MV7-00.analog-stereo\t1' \
+  $'noise-suppression-source\t1') \
+  <("$plugin_dir/scripts/source-status")
 
 [[ $(AUDIO_PRIORITY_TEST_EVENTS=1 "$plugin_dir/scripts/audio-events") == changed ]]
 
@@ -172,4 +183,4 @@ qmllint -I "$shell_dir" \
   "$plugin_dir/RememberedDevices.qml" \
   "$plugin_dir/tests/e2e/shell.qml"
 
-printf 'ok — routing and sink-status helpers, manifest, and QML validation\n'
+printf 'ok — routing, sink-status and source-status helpers, manifest, and QML validation\n'
